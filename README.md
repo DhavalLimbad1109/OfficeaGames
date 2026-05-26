@@ -4,7 +4,7 @@ OfficeGames is a React + Vite mini-game app for quick 2-3 minute brain games in 
 
 ## Features
 
-- One-player-per-device registration using browser fingerprint
+- One-player-per-device registration using a system-level fingerprint
 - Unique player name enforcement (case-insensitive)
 - 6 active random game types with no immediate repeat:
   - Anagram Rush

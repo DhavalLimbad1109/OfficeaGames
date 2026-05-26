@@ -1,7 +1,7 @@
 -- OfficeGames Supabase Setup
 -- Run this in your Supabase SQL Editor (https://app.supabase.com → SQL Editor)
 
--- Players table (one row per registered device)
+-- Players table (one row per registered computer/phone)
 CREATE TABLE IF NOT EXISTS players (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,

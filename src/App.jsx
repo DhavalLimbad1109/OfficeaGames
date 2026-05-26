@@ -105,7 +105,7 @@ export default function App() {
       if (existing) throw new Error('That name is already taken. Choose another!')
       const { data, error } = await supabase.from('players').insert({ name, fingerprint: fp }).select().single()
       if (error) {
-        if (error.code === '23505') throw new Error('Name or device already registered.')
+        if (error.code === '23505') throw new Error('Name or computer/phone already registered.')
         throw new Error('Registration failed. Please try again.')
       }
       localStorage.setItem(PLAYER_KEY, JSON.stringify(data))
