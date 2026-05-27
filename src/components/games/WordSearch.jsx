@@ -237,9 +237,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     )
     if (endCell) commitSelection(endCell.r, endCell.c)
     else clearDragging(true)
-    if (
-      gridRef.current?.hasPointerCapture?.(e.pointerId) === true
-    ) {
+    if (gridRef.current?.hasPointerCapture?.(e.pointerId)) {
       gridRef.current?.releasePointerCapture?.(e.pointerId)
     }
     clearDragging()
