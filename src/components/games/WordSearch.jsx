@@ -117,6 +117,8 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   const [hintsUsed, setHintsUsed] = useState(0)
   const endedRef = useRef(false)
   const isDragging = useRef(false)
+  const activePointerId = useRef(null)
+  const gridRef = useRef(null)
   const colorIdx = useRef(0)
   const hintPenaltyPerUse = getHintPenaltyPerUse(difficulty)
 
@@ -189,6 +191,8 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   function handleCellPointerDown(e, r, c) {
     if (ended) return
     e.preventDefault()
+    activePointerId.current = e.pointerId
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId)
     isDragging.current = true
     setSelStart({ r, c })
     setSelEnd({ r, c })
@@ -199,10 +203,31 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     setSelEnd({ r, c })
   }
 
-  function handlePointerUp(r, c) {
+  function getCellFromEventPoint(e) {
+    const pointEl = document.elementFromPoint(e.clientX, e.clientY)
+    const cellEl = pointEl?.closest?.('[data-ws-cell="true"]')
+    if (!cellEl) return null
+    return { r: Number(cellEl.dataset.r), c: Number(cellEl.dataset.c) }
+  }
+
+  function handleGridPointerMove(e) {
+    if (!isDragging.current || ended) return
+    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return
+    const cell = getCellFromEventPoint(e)
+    if (!cell) return
+    handleCellPointerEnter(cell.r, cell.c)
+  }
+
+  function handlePointerUp(e, fallbackR, fallbackC) {
     if (!isDragging.current) return
     isDragging.current = false
-    commitSelection(r, c)
+    const cell = getCellFromEventPoint(e)
+    const endCell = cell ?? { r: fallbackR, c: fallbackC }
+    commitSelection(endCell.r, endCell.c)
+    activePointerId.current = null
+    if (e.currentTarget.releasePointerCapture && e.pointerId !== undefined) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+    }
   }
 
   function useHint() {
@@ -263,12 +288,20 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
       {/* Grid */}
       <div
+        ref={gridRef}
         style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${cfg.size}, ${cellSize}px)`,
           gap: 2,
           touchAction: 'none',
           userSelect: 'none',
+        }}
+        onPointerMove={handleGridPointerMove}
+        onPointerCancel={() => {
+          isDragging.current = false
+          activePointerId.current = null
+          setSelStart(null)
+          setSelEnd(null)
         }}
         onPointerLeave={() => { if (isDragging.current && selEnd) { isDragging.current = false; commitSelection(selEnd.r, selEnd.c) } }}
       >
@@ -295,9 +328,12 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
             return (
               <div
                 key={`${r}-${c}`}
+                data-ws-cell="true"
+                data-r={r}
+                data-c={c}
                 onPointerDown={e => handleCellPointerDown(e, r, c)}
                 onPointerEnter={() => handleCellPointerEnter(r, c)}
-                onPointerUp={() => handlePointerUp(r, c)}
+                onPointerUp={e => handlePointerUp(e, r, c)}
                 style={{
                   width: cellSize, height: cellSize,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -331,7 +367,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
       </div>
 
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textAlign: 'center' }}>
-        Click and drag to select words • {difficulty === 'hard' ? 'Words may be reversed!' : ''}
+        Tap/click and drag to select words • {difficulty === 'hard' ? 'Words may be reversed!' : ''}
       </p>
     </div>
   )
