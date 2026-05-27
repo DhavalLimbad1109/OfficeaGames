@@ -203,6 +203,15 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     setSelEnd({ r, c })
   }
 
+  function clearDragging(clearSelection = false) {
+    isDragging.current = false
+    activePointerId.current = null
+    if (clearSelection) {
+      setSelStart(null)
+      setSelEnd(null)
+    }
+  }
+
   function getCellFromEventPoint(e) {
     const pointEl = document.elementFromPoint(e.clientX, e.clientY)
     const cellEl = pointEl?.closest?.('[data-ws-cell="true"]')
@@ -220,17 +229,15 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
   function handlePointerUp(e, fallbackR, fallbackC) {
     if (!isDragging.current) return
-    isDragging.current = false
     const cell = getCellFromEventPoint(e)
     const endCell = cell ?? { r: fallbackR, c: fallbackC }
     commitSelection(endCell.r, endCell.c)
-    activePointerId.current = null
     if (
-      e.currentTarget.releasePointerCapture &&
       e.currentTarget.hasPointerCapture?.(e.pointerId)
     ) {
-      e.currentTarget.releasePointerCapture(e.pointerId)
+      e.currentTarget.releasePointerCapture?.(e.pointerId)
     }
+    clearDragging()
   }
 
   function useHint() {
@@ -301,12 +308,14 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
         }}
         onPointerMove={handleGridPointerMove}
         onPointerCancel={() => {
-          isDragging.current = false
-          activePointerId.current = null
-          setSelStart(null)
-          setSelEnd(null)
+          clearDragging(true)
         }}
-        onPointerLeave={() => { if (isDragging.current && selEnd) { isDragging.current = false; commitSelection(selEnd.r, selEnd.c) } }}
+        onPointerLeave={() => {
+          if (isDragging.current && selEnd) {
+            commitSelection(selEnd.r, selEnd.c)
+            clearDragging()
+          }
+        }}
       >
         {puzzle.grid.map((row, r) =>
           row.map((letter, c) => {
