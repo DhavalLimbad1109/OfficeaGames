@@ -225,8 +225,11 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     const endCell = cell ?? { r: fallbackR, c: fallbackC }
     commitSelection(endCell.r, endCell.c)
     activePointerId.current = null
-    if (e.currentTarget.releasePointerCapture && e.pointerId !== undefined) {
-      try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+    if (
+      e.currentTarget.releasePointerCapture &&
+      e.currentTarget.hasPointerCapture?.(e.pointerId)
+    ) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
     }
   }
 
