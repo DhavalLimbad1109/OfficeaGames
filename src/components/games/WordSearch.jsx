@@ -192,7 +192,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     if (ended) return
     e.preventDefault()
     activePointerId.current = e.pointerId
-    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId)
+    gridRef.current?.setPointerCapture?.(e.pointerId)
     isDragging.current = true
     setSelStart({ r, c })
     setSelEnd({ r, c })
@@ -230,12 +230,17 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   function handlePointerUp(e, fallbackR, fallbackC) {
     if (!isDragging.current) return
     const cell = getCellFromEventPoint(e)
-    const endCell = cell ?? { r: fallbackR, c: fallbackC }
-    commitSelection(endCell.r, endCell.c)
+    const endCell = cell ?? (
+      Number.isInteger(fallbackR) && Number.isInteger(fallbackC)
+        ? { r: fallbackR, c: fallbackC }
+        : null
+    )
+    if (endCell) commitSelection(endCell.r, endCell.c)
+    else clearDragging(true)
     if (
-      e.currentTarget.hasPointerCapture?.(e.pointerId)
+      gridRef.current?.hasPointerCapture?.(e.pointerId) === true
     ) {
-      e.currentTarget.releasePointerCapture?.(e.pointerId)
+      gridRef.current?.releasePointerCapture?.(e.pointerId)
     }
     clearDragging()
   }
@@ -307,6 +312,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
           userSelect: 'none',
         }}
         onPointerMove={handleGridPointerMove}
+        onPointerUp={e => handlePointerUp(e, selEnd?.r, selEnd?.c)}
         onPointerCancel={() => {
           clearDragging(true)
         }}
@@ -345,7 +351,6 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
                 data-c={c}
                 onPointerDown={e => handleCellPointerDown(e, r, c)}
                 onPointerEnter={() => handleCellPointerEnter(r, c)}
-                onPointerUp={e => handlePointerUp(e, r, c)}
                 style={{
                   width: cellSize, height: cellSize,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
