@@ -104,7 +104,10 @@ supabase_setup.sql        # SQL script for schema + RLS
 5. Configure Supabase Auth:
 
    - Enable Email provider in **Authentication -> Providers**
-   - In **Authentication -> Email Templates -> Magic Link**, include `{{ .Token }}` so OTP code is sent in the email
+   - In **Authentication -> URL Configuration**, set your Site URL to your app domain
+   - In **Authentication -> Email Templates**:
+     - **Magic Link** template should include `{{ .Token }}`
+     - **Confirm signup** template should include `{{ .Token }}`
    - Keep email auth enabled for OTP sign-in/sign-up
 
 6. Start app:
@@ -158,7 +161,7 @@ VITE_TESTING_NO_PLAY_LIMIT=false
 1. Set `VITE_TESTING_NO_PLAY_LIMIT=false` in deployment env
 2. Ensure Supabase env vars are valid in deployment environment
 3. Ensure `supabase_setup.sql` has been executed on target database
-4. Ensure Supabase Auth email provider is enabled and OTP email template includes `{{ .Token }}`
+4. Ensure Supabase Auth email provider is enabled and both **Magic Link** + **Confirm signup** templates include `{{ .Token }}`
 5. Verify leaderboard writes by completing one game end-to-end
 
 ## Troubleshooting
