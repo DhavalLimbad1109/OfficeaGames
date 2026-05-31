@@ -34,7 +34,9 @@ function formatClaimError(error) {
   if (msg.includes('invalid_player_name')) return 'Name must be 2-20 chars (letters, numbers, spaces, underscore).'
   if (msg.includes('missing_player_name')) return 'Please choose a player name first.'
   if (msg.includes('missing_fingerprint')) return 'Could not verify this device. Please try again.'
-  if (msg.includes('Invalid login credentials')) return 'Invalid email or password.'
+  if (msg.includes('Token has expired') || msg.includes('invalid')) return 'Invalid or expired OTP. Please request a new code.'
+  if (msg.includes('Email rate limit exceeded')) return 'Too many OTP requests. Please wait and try again.'
+  if (msg.includes('Signups not allowed')) return 'Signups are currently disabled for this project.'
   return 'Authentication failed. Please try again.'
 }
 
@@ -134,26 +136,29 @@ export default function App() {
     }
   }, [hydrateSignedInPlayer, resetToSignedOutState])
 
-  async function handleRegister(payload) {
+  async function handleLocalRegister(name) {
+    const normalizedName = normalizePlayerName(name)
+    const fp = await generateFingerprint()
+    const demo = { id: crypto.randomUUID(), name: normalizedName, fingerprint: fp }
+    localStorage.setItem(PLAYER_KEY, JSON.stringify(demo))
+    setPlayer(demo)
+    setAuthNotice('')
+    setView('hub')
+  }
+
+  async function handleSendOtp(payload) {
     if (!payload) return
 
     if (!supabase) {
-      const name = normalizePlayerName(payload.name)
-      const fp = await generateFingerprint()
-      const demo = { id: crypto.randomUUID(), name, fingerprint: fp }
-      localStorage.setItem(PLAYER_KEY, JSON.stringify(demo))
-      setPlayer(demo)
-      setAuthNotice('')
-      setView('hub')
+      await handleLocalRegister(payload.name)
       return
     }
 
     const email = (payload.email || '').trim().toLowerCase()
-    const password = payload.password || ''
+    const mode = payload.mode === 'signin' ? 'signin' : 'signup'
+    const name = normalizePlayerName(payload.name)
 
-    if (payload.mode === 'signup') {
-      const name = normalizePlayerName(payload.name)
-
+    if (mode === 'signup') {
       const fp = await generateFingerprint()
       const [{ data: isDeviceAvailable, error: deviceError }, { data: isNameAvailable, error: nameError }] = await Promise.all([
         supabase.rpc('is_device_available', { _fp_hash: fp }),
@@ -165,34 +170,42 @@ export default function App() {
       if (!isNameAvailable) throw new Error('That player name is already taken.')
 
       localStorage.setItem(PENDING_NAME_KEY, name)
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: window.location.origin,
-          data: { player_name: name },
-        },
-      })
-
-      if (error) {
-        throw new Error(formatClaimError(error), { cause: error })
-      }
-
-      if (!data?.session) {
-        setAuthNotice('Verification email sent. Open the link, then sign in to continue.')
-        setView('registration')
-        return
-      }
-
-      await hydrateSignedInPlayer(data.session, name)
-      return
+    } else {
+      localStorage.removeItem(PENDING_NAME_KEY)
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    const otpOptions = mode === 'signup'
+      ? { shouldCreateUser: true, data: { player_name: name } }
+      : { shouldCreateUser: false }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: otpOptions,
+    })
+
     if (error) throw new Error(formatClaimError(error), { cause: error })
+    setAuthNotice(`OTP sent to ${email}.`)
+  }
+
+  async function handleVerifyOtp(payload) {
+    if (!payload || !supabase) return
+
+    const email = (payload.email || '').trim().toLowerCase()
+    const token = (payload.token || '').trim()
+    const mode = payload.mode === 'signin' ? 'signin' : 'signup'
+    const name = normalizePlayerName(payload.name)
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    })
+
+    if (error) throw new Error(formatClaimError(error), { cause: error })
+    if (!data?.session) throw new Error('OTP verification failed. Please request a new code.')
 
     try {
-      await hydrateSignedInPlayer(data.session)
+      await hydrateSignedInPlayer(data.session, mode === 'signup' ? name : undefined)
     } catch (claimError) {
       await supabase.auth.signOut()
       throw new Error(formatClaimError(claimError), { cause: claimError })
@@ -255,7 +268,15 @@ export default function App() {
   )
 
   if (view === 'registration') {
-    return <Registration onRegister={handleRegister} notice={authNotice} requiresAuth={Boolean(supabase)} />
+    return (
+      <Registration
+        onSendOtp={handleSendOtp}
+        onVerifyOtp={handleVerifyOtp}
+        onRegisterLocal={handleLocalRegister}
+        notice={authNotice}
+        requiresAuth={Boolean(supabase)}
+      />
+    )
   }
   if (view === 'hub') return <GameHub player={player} weeklyScore={weeklyScore} onPlay={handlePlay} onLeaderboard={() => setView('leaderboard')} />
   if (view === 'game') return <GameScreen config={gameConfig} onEnd={handleGameEnd} />

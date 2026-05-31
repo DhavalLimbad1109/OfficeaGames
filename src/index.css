@@ -103,6 +103,17 @@ h1 { font-size: 2rem; margin-bottom: 4px; }
   margin: 8px 0;
 }
 .error-msg { color: var(--red); font-size: 0.85rem; margin: 8px 0; }
+.otp-meta {
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.otp-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
 
 .rules-box {
   margin-top: 20px; text-align: left;

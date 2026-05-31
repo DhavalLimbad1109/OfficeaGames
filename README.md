@@ -5,7 +5,7 @@ OfficeGames is a React + Vite mini-game app for quick 2-3 minute brain games in 
 ## Features
 
 - One-player-per-device registration using a system-level fingerprint
-- Email/password auth (Supabase Auth) with email verification flow
+- Email OTP auth (Supabase Auth) with in-app OTP verification screen
 - Unique player name enforcement (case-insensitive)
 - 6 active random game types with no immediate repeat:
   - Anagram Rush
@@ -104,8 +104,8 @@ supabase_setup.sql        # SQL script for schema + RLS
 5. Configure Supabase Auth:
 
    - Enable Email provider in **Authentication -> Providers**
-   - Keep email confirmation enabled
-   - Add your app URL to **Authentication -> URL Configuration** (for `emailRedirectTo`)
+   - In **Authentication -> Email Templates -> Magic Link**, include `{{ .Token }}` so OTP code is sent in the email
+   - Keep email auth enabled for OTP sign-in/sign-up
 
 6. Start app:
 
@@ -158,7 +158,7 @@ VITE_TESTING_NO_PLAY_LIMIT=false
 1. Set `VITE_TESTING_NO_PLAY_LIMIT=false` in deployment env
 2. Ensure Supabase env vars are valid in deployment environment
 3. Ensure `supabase_setup.sql` has been executed on target database
-4. Ensure Supabase Auth email provider and redirect URLs are configured
+4. Ensure Supabase Auth email provider is enabled and OTP email template includes `{{ .Token }}`
 5. Verify leaderboard writes by completing one game end-to-end
 
 ## Troubleshooting
