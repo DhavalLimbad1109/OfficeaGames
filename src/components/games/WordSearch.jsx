@@ -118,6 +118,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   const endedRef = useRef(false)
   const isDragging = useRef(false)
   const activePointerId = useRef(null)
+  const activeTouchId = useRef(null)
   const pointerCaptureTarget = useRef(null)
   const gridRef = useRef(null)
   const colorIdx = useRef(0)
@@ -191,6 +192,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
   function handleCellPointerDown(e, r, c) {
     if (ended) return
+    if (activeTouchId.current !== null) return
     if (e.pointerType === 'mouse' && e.button !== 0) return
     e.preventDefault()
     activePointerId.current = e.pointerId
@@ -209,6 +211,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   function clearDragging(clearSelection = false) {
     isDragging.current = false
     activePointerId.current = null
+    activeTouchId.current = null
     pointerCaptureTarget.current = null
     if (clearSelection) {
       setSelStart(null)
@@ -216,15 +219,20 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     }
   }
 
-  function getCellFromEventPoint(e) {
-    const pointEl = document.elementFromPoint(e.clientX, e.clientY)
+  function getCellFromPoint(clientX, clientY) {
+    const pointEl = document.elementFromPoint(clientX, clientY)
     const cellEl = pointEl?.closest?.('[data-ws-cell="true"]')
     if (!cellEl) return null
     return { r: Number(cellEl.dataset.r), c: Number(cellEl.dataset.c) }
   }
 
+  function getCellFromEventPoint(e) {
+    return getCellFromPoint(e.clientX, e.clientY)
+  }
+
   function handleGridPointerMove(e) {
     if (!isDragging.current || ended) return
+    if (activeTouchId.current !== null) return
     if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return
     const cell = getCellFromEventPoint(e)
     if (!cell) return
@@ -233,6 +241,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
   function handlePointerUp(e, fallbackR, fallbackC) {
     if (!isDragging.current) return
+    if (activeTouchId.current !== null) return
     if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return
     const cell = getCellFromEventPoint(e)
     const endCell = cell ?? (
@@ -245,6 +254,53 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     if (pointerCaptureTarget.current?.hasPointerCapture?.(e.pointerId)) {
       pointerCaptureTarget.current?.releasePointerCapture?.(e.pointerId)
     }
+    clearDragging()
+  }
+
+  function handleCellTouchStart(e, r, c) {
+    if (ended) return
+    if (activePointerId.current !== null) return
+     const touch = e.changedTouches?.[0]
+    if (!touch) return
+    e.preventDefault()
+    activeTouchId.current = touch.identifier
+    isDragging.current = true
+    setSelStart({ r, c })
+    setSelEnd({ r, c })
+  }
+
+  function getTrackedTouch(touchList) {
+    if (!touchList || activeTouchId.current === null) return null
+    for (let i = 0; i < touchList.length; i++) {
+      if (touchList[i].identifier === activeTouchId.current) return touchList[i]
+    }
+    return null
+  }
+
+  function handleGridTouchMove(e) {
+    if (!isDragging.current || ended) return
+    if (activeTouchId.current === null) return
+    const touch = getTrackedTouch(e.touches) ?? getTrackedTouch(e.changedTouches)
+    if (!touch) return
+    e.preventDefault()
+    const cell = getCellFromPoint(touch.clientX, touch.clientY)
+    if (!cell) return
+    setSelEnd({ r: cell.r, c: cell.c })
+  }
+
+  function handleGridTouchEnd(e) {
+    if (!isDragging.current) return
+    if (activeTouchId.current === null) return
+    const touch = getTrackedTouch(e.changedTouches) ?? getTrackedTouch(e.touches)
+    e.preventDefault()
+    if (!touch) {
+      clearDragging(true)
+      return
+    }
+    const cell = getCellFromPoint(touch.clientX, touch.clientY)
+    const endCell = cell ?? selEnd
+    if (endCell) commitSelection(endCell.r, endCell.c)
+    else clearDragging(true)
     clearDragging()
   }
 
@@ -319,12 +375,16 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
         onPointerCancel={() => {
           clearDragging(true)
         }}
-        onPointerLeave={() => {
+        onPointerLeave={e => {
+          if (e.pointerType !== 'mouse') return
           if (isDragging.current && selEnd) {
             commitSelection(selEnd.r, selEnd.c)
             clearDragging()
           }
         }}
+        onTouchMove={handleGridTouchMove}
+        onTouchEnd={handleGridTouchEnd}
+        onTouchCancel={() => clearDragging(true)}
       >
         {puzzle.grid.map((row, r) =>
           row.map((letter, c) => {
@@ -354,6 +414,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
                 data-c={c}
                 onPointerDown={e => handleCellPointerDown(e, r, c)}
                 onPointerEnter={() => handleCellPointerEnter(r, c)}
+                onTouchStart={e => handleCellTouchStart(e, r, c)}
                 style={{
                   width: cellSize, height: cellSize,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
