@@ -115,7 +115,7 @@ export default function ZipPuzzle({ difficulty, totalTime, onEnd }) {
     setTimeout(() => setMsg({ text: '', type: 'info' }), 1100)
   }
 
-  function handleCellClick(r, c) {
+  function handleCellSelect(r, c) {
     if (!puzzle || ended) return
     setHintCell(null)
     const key = r * puzzle.size + c
@@ -262,13 +262,17 @@ export default function ZipPuzzle({ difficulty, totalTime, onEnd }) {
             return (
               <div
                 key={`${r}-${c}`}
-                onClick={() => handleCellClick(r, c)}
+                onPointerDown={(e) => {
+                  if (e.pointerType === 'mouse' && e.button !== 0) return
+                  e.preventDefault()
+                  handleCellSelect(r, c)
+                }}
                 style={{
                   width: cellSize, height: cellSize, background: bg, border,
                   borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   cursor: ended ? 'default' : 'pointer', fontSize: wp ? `${Math.max(16, cellSize * 0.4)}px` : '10px',
                   fontWeight: 700, color: wp ? '#f59e0b' : inPath ? 'rgba(200,200,255,0.8)' : 'transparent',
-                  userSelect: 'none', transition: 'background 0.1s, border 0.1s',
+                  userSelect: 'none', touchAction: 'manipulation', transition: 'background 0.1s, border 0.1s',
                 }}
               >
                 {wp ? CIRCLED[wp.number] : inPath ? '●' : '·'}
@@ -304,7 +308,7 @@ export default function ZipPuzzle({ difficulty, totalTime, onEnd }) {
       <div className="zip-legend">
         <span><span style={{ color: '#f59e0b' }}>①</span> Waypoint</span>
         <span><span style={{ color: '#6c63ff' }}>●</span> Your path</span>
-        <span style={{ color: 'var(--muted)' }}>Click waypoints in order</span>
+        <span style={{ color: 'var(--muted)' }}>Tap/click waypoints in order</span>
       </div>
     </div>
   )

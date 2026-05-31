@@ -117,6 +117,8 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   const [hintsUsed, setHintsUsed] = useState(0)
   const endedRef = useRef(false)
   const isDragging = useRef(false)
+  const activePointerId = useRef(null)
+  const gridRef = useRef(null)
   const colorIdx = useRef(0)
   const hintPenaltyPerUse = getHintPenaltyPerUse(difficulty)
 
@@ -189,6 +191,8 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   function handleCellPointerDown(e, r, c) {
     if (ended) return
     e.preventDefault()
+    activePointerId.current = e.pointerId
+    gridRef.current?.setPointerCapture?.(e.pointerId)
     isDragging.current = true
     setSelStart({ r, c })
     setSelEnd({ r, c })
@@ -199,10 +203,44 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     setSelEnd({ r, c })
   }
 
-  function handlePointerUp(r, c) {
-    if (!isDragging.current) return
+  function clearDragging(clearSelection = false) {
     isDragging.current = false
-    commitSelection(r, c)
+    activePointerId.current = null
+    if (clearSelection) {
+      setSelStart(null)
+      setSelEnd(null)
+    }
+  }
+
+  function getCellFromEventPoint(e) {
+    const pointEl = document.elementFromPoint(e.clientX, e.clientY)
+    const cellEl = pointEl?.closest?.('[data-ws-cell="true"]')
+    if (!cellEl) return null
+    return { r: Number(cellEl.dataset.r), c: Number(cellEl.dataset.c) }
+  }
+
+  function handleGridPointerMove(e) {
+    if (!isDragging.current || ended) return
+    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return
+    const cell = getCellFromEventPoint(e)
+    if (!cell) return
+    handleCellPointerEnter(cell.r, cell.c)
+  }
+
+  function handlePointerUp(e, fallbackR, fallbackC) {
+    if (!isDragging.current) return
+    const cell = getCellFromEventPoint(e)
+    const endCell = cell ?? (
+      Number.isInteger(fallbackR) && Number.isInteger(fallbackC)
+        ? { r: fallbackR, c: fallbackC }
+        : null
+    )
+    if (endCell) commitSelection(endCell.r, endCell.c)
+    else clearDragging(true)
+    if (gridRef.current?.hasPointerCapture?.(e.pointerId)) {
+      gridRef.current?.releasePointerCapture?.(e.pointerId)
+    }
+    clearDragging()
   }
 
   function useHint() {
@@ -263,6 +301,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
       {/* Grid */}
       <div
+        ref={gridRef}
         style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${cfg.size}, ${cellSize}px)`,
@@ -270,7 +309,17 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
           touchAction: 'none',
           userSelect: 'none',
         }}
-        onPointerLeave={() => { if (isDragging.current && selEnd) { isDragging.current = false; commitSelection(selEnd.r, selEnd.c) } }}
+        onPointerMove={handleGridPointerMove}
+        onPointerUp={e => handlePointerUp(e, selEnd?.r, selEnd?.c)}
+        onPointerCancel={() => {
+          clearDragging(true)
+        }}
+        onPointerLeave={() => {
+          if (isDragging.current && selEnd) {
+            commitSelection(selEnd.r, selEnd.c)
+            clearDragging()
+          }
+        }}
       >
         {puzzle.grid.map((row, r) =>
           row.map((letter, c) => {
@@ -295,9 +344,11 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
             return (
               <div
                 key={`${r}-${c}`}
+                data-ws-cell="true"
+                data-r={r}
+                data-c={c}
                 onPointerDown={e => handleCellPointerDown(e, r, c)}
                 onPointerEnter={() => handleCellPointerEnter(r, c)}
-                onPointerUp={() => handlePointerUp(r, c)}
                 style={{
                   width: cellSize, height: cellSize,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -331,7 +382,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
       </div>
 
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', textAlign: 'center' }}>
-        Click and drag to select words • {difficulty === 'hard' ? 'Words may be reversed!' : ''}
+        Tap/click and drag to select words • {difficulty === 'hard' ? 'Words may be reversed!' : ''}
       </p>
     </div>
   )
