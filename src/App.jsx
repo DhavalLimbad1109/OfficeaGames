@@ -175,8 +175,15 @@ export default function App() {
     }
 
     const otpOptions = mode === 'signup'
-      ? { shouldCreateUser: true, data: { player_name: name } }
-      : { shouldCreateUser: false }
+      ? {
+          shouldCreateUser: true,
+          data: { player_name: name },
+          emailRedirectTo: window.location.origin,
+        }
+      : {
+          shouldCreateUser: false,
+          emailRedirectTo: window.location.origin,
+        }
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -198,7 +205,7 @@ export default function App() {
     const { data, error } = await supabase.auth.verifyOtp({
       email,
       token,
-      type: 'email',
+      type: mode === 'signup' ? 'signup' : 'email',
     })
 
     if (error) throw new Error(formatClaimError(error), { cause: error })
