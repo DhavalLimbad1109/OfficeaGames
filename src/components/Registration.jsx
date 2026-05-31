@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import { supabase } from '../lib/supabase.js'
-import { generateFingerprint } from '../utils/fingerprint.js'
 
 export default function Registration({ onRegister }) {
   const [name, setName] = useState('')
@@ -55,7 +53,7 @@ export default function Registration({ onRegister }) {
           <p>📋 <strong>Rules:</strong></p>
           <ul>
             <li>🎯 2 games every 8 hours</li>
-            <li>🔒 One account per device</li>
+            <li>🔒 One account per computer/phone</li>
             <li>🏆 Weekly leaderboard (resets Mon 10AM IST)</li>
             <li>📈 Difficulty increases with your score</li>
           </ul>
