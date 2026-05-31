@@ -118,6 +118,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   const endedRef = useRef(false)
   const isDragging = useRef(false)
   const activePointerId = useRef(null)
+  const pointerCaptureTarget = useRef(null)
   const gridRef = useRef(null)
   const colorIdx = useRef(0)
   const hintPenaltyPerUse = getHintPenaltyPerUse(difficulty)
@@ -190,9 +191,11 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
   function handleCellPointerDown(e, r, c) {
     if (ended) return
+    if (e.pointerType === 'mouse' && e.button !== 0) return
     e.preventDefault()
     activePointerId.current = e.pointerId
-    gridRef.current?.setPointerCapture?.(e.pointerId)
+    pointerCaptureTarget.current = e.currentTarget
+    pointerCaptureTarget.current?.setPointerCapture?.(e.pointerId)
     isDragging.current = true
     setSelStart({ r, c })
     setSelEnd({ r, c })
@@ -206,6 +209,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
   function clearDragging(clearSelection = false) {
     isDragging.current = false
     activePointerId.current = null
+    pointerCaptureTarget.current = null
     if (clearSelection) {
       setSelStart(null)
       setSelEnd(null)
@@ -229,6 +233,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
 
   function handlePointerUp(e, fallbackR, fallbackC) {
     if (!isDragging.current) return
+    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return
     const cell = getCellFromEventPoint(e)
     const endCell = cell ?? (
       Number.isInteger(fallbackR) && Number.isInteger(fallbackC)
@@ -237,8 +242,8 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
     )
     if (endCell) commitSelection(endCell.r, endCell.c)
     else clearDragging(true)
-    if (gridRef.current?.hasPointerCapture?.(e.pointerId)) {
-      gridRef.current?.releasePointerCapture?.(e.pointerId)
+    if (pointerCaptureTarget.current?.hasPointerCapture?.(e.pointerId)) {
+      pointerCaptureTarget.current?.releasePointerCapture?.(e.pointerId)
     }
     clearDragging()
   }
@@ -355,6 +360,7 @@ export default function WordSearch({ difficulty, totalTime, onEnd }) {
                   background: bg, color, border, borderRadius: 4,
                   fontSize: Math.max(10, cellSize * 0.45) + 'px',
                   fontWeight: 700, cursor: 'pointer',
+                  touchAction: 'none',
                   transition: 'background 0.1s',
                 }}
               >
