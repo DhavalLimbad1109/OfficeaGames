@@ -178,11 +178,9 @@ export default function App() {
       ? {
           shouldCreateUser: true,
           data: { player_name: name },
-          emailRedirectTo: window.location.origin,
         }
       : {
           shouldCreateUser: false,
-          emailRedirectTo: window.location.origin,
         }
 
     const { error } = await supabase.auth.signInWithOtp({
