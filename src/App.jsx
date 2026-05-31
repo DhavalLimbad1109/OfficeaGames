@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './lib/supabase.js'
 import { generateFingerprint } from './utils/fingerprint.js'
 import { getDifficultyFromScore, calculateFinalScore, DIFFICULTY_CONFIG } from './utils/scoring.js'
@@ -13,6 +13,30 @@ import GameResult from './components/GameResult.jsx'
 import Leaderboard from './components/Leaderboard.jsx'
 
 const PLAYER_KEY = 'og_player'
+const PENDING_NAME_KEY = 'og_pending_player_name'
+
+function fallbackNameFromEmail(email) {
+  const [raw] = (email || '').split('@')
+  const cleaned = (raw || 'Player').replace(/[^a-zA-Z0-9_ ]/g, '').trim()
+  return cleaned.slice(0, 20) || 'Player'
+}
+
+function normalizePlayerName(name) {
+  const cleaned = (name || '').trim().replace(/\s+/g, ' ')
+  return cleaned.slice(0, 20)
+}
+
+function formatClaimError(error) {
+  const msg = error?.message || ''
+  if (msg.includes('device_already_registered')) return 'This device is already linked to another account.'
+  if (msg.includes('account_locked_to_another_device')) return 'This account is locked to another device.'
+  if (msg.includes('player_name_taken')) return 'This player name is already taken.'
+  if (msg.includes('invalid_player_name')) return 'Name must be 2-20 chars (letters, numbers, spaces, underscore).'
+  if (msg.includes('missing_player_name')) return 'Please choose a player name first.'
+  if (msg.includes('missing_fingerprint')) return 'Could not verify this device. Please try again.'
+  if (msg.includes('Invalid login credentials')) return 'Invalid email or password.'
+  return 'Authentication failed. Please try again.'
+}
 
 export default function App() {
   const [view, setView] = useState('loading')
@@ -20,28 +44,9 @@ export default function App() {
   const [weeklyScore, setWeeklyScore] = useState(0)
   const [gameConfig, setGameConfig] = useState(null)
   const [gameResult, setGameResult] = useState(null)
+  const [authNotice, setAuthNotice] = useState('')
 
-  async function syncSavedPlayerToSupabase(savedPlayer, fingerprint) {
-    if (!supabase || !savedPlayer?.name) return null
-
-    const { data, error } = await supabase
-      .from('players')
-      .upsert({ name: savedPlayer.name, fingerprint }, { onConflict: 'fingerprint' })
-      .select()
-      .single()
-
-    if (!error) return data
-
-    const { data: byFingerprint } = await supabase
-      .from('players')
-      .select()
-      .eq('fingerprint', fingerprint)
-      .maybeSingle()
-
-    return byFingerprint || null
-  }
-
-  async function loadWeeklyScore(playerId) {
+  const loadWeeklyScore = useCallback(async playerId => {
     if (!supabase || !playerId) return
     const { data } = await supabase
       .from('game_sessions')
@@ -49,73 +54,149 @@ export default function App() {
       .eq('player_id', playerId)
       .eq('week_start', getWeekStart())
     if (data) setWeeklyScore(data.reduce((s, r) => s + r.score, 0))
-  }
+  }, [])
+
+  const hydrateSignedInPlayer = useCallback(async (session, preferredName) => {
+    if (!supabase || !session?.user) throw new Error('Authentication failed. Please sign in again.')
+
+    const fingerprint = await generateFingerprint()
+    const suggestedName = normalizePlayerName(
+      preferredName
+        || localStorage.getItem(PENDING_NAME_KEY)
+        || session.user.user_metadata?.player_name
+        || fallbackNameFromEmail(session.user.email)
+    )
+
+    const { data, error } = await supabase.rpc('claim_device_profile', {
+      _fp_hash: fingerprint,
+      _name: suggestedName || null,
+    })
+
+    if (error) throw error
+
+    localStorage.setItem(PLAYER_KEY, JSON.stringify(data))
+    localStorage.removeItem(PENDING_NAME_KEY)
+    setPlayer(data)
+    await loadWeeklyScore(data.id)
+    setAuthNotice('')
+    setView('hub')
+  }, [loadWeeklyScore])
+
+  const resetToSignedOutState = useCallback(async () => {
+    localStorage.removeItem(PLAYER_KEY)
+    setPlayer(null)
+    setWeeklyScore(0)
+    setView('registration')
+  }, [])
 
   useEffect(() => {
     async function init() {
-      const fp = await generateFingerprint()
-      const saved = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null')
-
-      if (supabase) {
-        const { data: remoteByFingerprint } = await supabase
-          .from('players')
-          .select()
-          .eq('fingerprint', fp)
-          .maybeSingle()
-
-        if (remoteByFingerprint) {
-          localStorage.setItem(PLAYER_KEY, JSON.stringify(remoteByFingerprint))
-          setPlayer(remoteByFingerprint)
-          await loadWeeklyScore(remoteByFingerprint.id)
+      if (!supabase) {
+        const fp = await generateFingerprint()
+        const saved = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null')
+        if (saved?.fingerprint === fp) {
+          setPlayer(saved)
+          setWeeklyScore(0)
           setView('hub')
           return
         }
-
-        if (saved?.fingerprint === fp) {
-          const synced = await syncSavedPlayerToSupabase(saved, fp)
-          if (synced) {
-            localStorage.setItem(PLAYER_KEY, JSON.stringify(synced))
-            setPlayer(synced)
-            await loadWeeklyScore(synced.id)
-            setView('hub')
-            return
-          }
-        }
-
         setView('registration')
         return
       }
 
-      if (saved?.fingerprint === fp) {
-        setPlayer(saved)
-        setWeeklyScore(0)
-        setView('hub')
+      const { data: sessionData } = await supabase.auth.getSession()
+      const session = sessionData?.session
+      if (!session) {
+        await resetToSignedOutState()
         return
       }
 
-      setView('registration')
-    }
-    init()
-  }, [])
-
-  async function handleRegister(name) {
-    const fp = await generateFingerprint()
-    if (supabase) {
-      const { data: existing } = await supabase.from('players').select('id').ilike('name', name).maybeSingle()
-      if (existing) throw new Error('That name is already taken. Choose another!')
-      const { data, error } = await supabase.from('players').insert({ name, fingerprint: fp }).select().single()
-      if (error) {
-        if (error.code === '23505') throw new Error('Name or computer/phone already registered.')
-        throw new Error('Registration failed. Please try again.')
+      try {
+        await hydrateSignedInPlayer(session)
+      } catch (error) {
+        await supabase.auth.signOut()
+        setAuthNotice(formatClaimError(error))
+        await resetToSignedOutState()
       }
-      localStorage.setItem(PLAYER_KEY, JSON.stringify(data))
-      setPlayer(data)
-    } else {
+    }
+
+    init()
+
+    if (!supabase) return undefined
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        void resetToSignedOutState()
+      }
+    })
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
+  }, [hydrateSignedInPlayer, resetToSignedOutState])
+
+  async function handleRegister(payload) {
+    if (!payload) return
+
+    if (!supabase) {
+      const name = normalizePlayerName(payload.name)
+      const fp = await generateFingerprint()
       const demo = { id: crypto.randomUUID(), name, fingerprint: fp }
       localStorage.setItem(PLAYER_KEY, JSON.stringify(demo))
       setPlayer(demo)
+      setAuthNotice('')
+      setView('hub')
+      return
     }
-    setView('hub')
+
+    const email = (payload.email || '').trim().toLowerCase()
+    const password = payload.password || ''
+
+    if (payload.mode === 'signup') {
+      const name = normalizePlayerName(payload.name)
+
+      const fp = await generateFingerprint()
+      const [{ data: isDeviceAvailable, error: deviceError }, { data: isNameAvailable, error: nameError }] = await Promise.all([
+        supabase.rpc('is_device_available', { _fp_hash: fp }),
+        supabase.rpc('is_player_name_available', { _name: name }),
+      ])
+
+      if (deviceError || nameError) throw new Error('Could not validate sign-up. Please try again.')
+      if (!isDeviceAvailable) throw new Error('This device is already linked to another account.')
+      if (!isNameAvailable) throw new Error('That player name is already taken.')
+
+      localStorage.setItem(PENDING_NAME_KEY, name)
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: { player_name: name },
+        },
+      })
+
+      if (error) {
+        throw new Error(formatClaimError(error), { cause: error })
+      }
+
+      if (!data?.session) {
+        setAuthNotice('Verification email sent. Open the link, then sign in to continue.')
+        setView('registration')
+        return
+      }
+
+      await hydrateSignedInPlayer(data.session, name)
+      return
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw new Error(formatClaimError(error), { cause: error })
+
+    try {
+      await hydrateSignedInPlayer(data.session)
+    } catch (claimError) {
+      await supabase.auth.signOut()
+      throw new Error(formatClaimError(claimError), { cause: claimError })
+    }
   }
 
   async function handlePlay() {
@@ -173,7 +254,9 @@ export default function App() {
     </div>
   )
 
-  if (view === 'registration') return <Registration onRegister={handleRegister} />
+  if (view === 'registration') {
+    return <Registration onRegister={handleRegister} notice={authNotice} requiresAuth={Boolean(supabase)} />
+  }
   if (view === 'hub') return <GameHub player={player} weeklyScore={weeklyScore} onPlay={handlePlay} onLeaderboard={() => setView('leaderboard')} />
   if (view === 'game') return <GameScreen config={gameConfig} onEnd={handleGameEnd} />
   if (view === 'result') {

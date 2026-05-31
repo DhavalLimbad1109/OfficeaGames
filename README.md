@@ -5,6 +5,7 @@ OfficeGames is a React + Vite mini-game app for quick 2-3 minute brain games in 
 ## Features
 
 - One-player-per-device registration using a system-level fingerprint
+- Email/password auth (Supabase Auth) with email verification flow
 - Unique player name enforcement (case-insensitive)
 - 6 active random game types with no immediate repeat:
   - Anagram Rush
@@ -28,8 +29,8 @@ OfficeGames is a React + Vite mini-game app for quick 2-3 minute brain games in 
   - Medium: 150s
   - Hard: 180s
 - Play-limit system exists for "2 games per 8 hours"
-  - Current code is in testing mode with unlimited plays:
-    `src/hooks/usePlayLimit.js -> TESTING_NO_PLAY_LIMIT = true`
+  - Controlled by env: `VITE_TESTING_NO_PLAY_LIMIT`
+  - Set `true` for testing (unlimited), `false` for production behavior
 - Hint usage deducts points from final score.
 
 ## Hint Penalties
@@ -56,7 +57,7 @@ Final score:
 
 - React 19
 - Vite 8
-- Supabase (shared data + leaderboard)
+- Supabase (Auth + shared leaderboard data)
 - localStorage (play history + local player cache)
 
 ## Project Structure
@@ -100,7 +101,13 @@ supabase_setup.sql        # SQL script for schema + RLS
    - Open `supabase_setup.sql`
    - Execute all statements
 
-5. Start app:
+5. Configure Supabase Auth:
+
+   - Enable Email provider in **Authentication -> Providers**
+   - Keep email confirmation enabled
+   - Add your app URL to **Authentication -> URL Configuration** (for `emailRedirectTo`)
+
+6. Start app:
 
    ```bash
    npm run dev
@@ -112,13 +119,22 @@ Created by `supabase_setup.sql`:
 
 - `players`
   - `id` UUID PK
+  - `auth_user_id` UUID UNIQUE -> `auth.users(id)`
   - `name` unique (case-insensitive index on `lower(name)`)
-  - `fingerprint` unique
 - `game_sessions`
   - `player_id` FK -> `players(id)`
   - per-game score + answer stats + `week_start`
+- `private.device_bindings`
+  - `auth_user_id` unique -> `auth.users(id)`
+  - `fp_hash` unique (device fingerprint hash)
 
-RLS is enabled on both tables with `public_access` policy for `anon`.
+Main RPC functions:
+
+- `is_player_name_available(_name text)`
+- `is_device_available(_fp_hash text)`
+- `claim_device_profile(_fp_hash text, _name text)`
+
+RLS is enabled on public tables and writes are scoped to authenticated users.
 
 ## Environment Variables
 
@@ -127,6 +143,7 @@ Use `.env` (Vite format):
 ```env
 VITE_SUPABASE_URL=your_supabase_project_url_here
 VITE_SUPABASE_ANON_KEY=your_supabase_publishable_key_here
+VITE_TESTING_NO_PLAY_LIMIT=false
 ```
 
 ## NPM Scripts
@@ -138,10 +155,11 @@ VITE_SUPABASE_ANON_KEY=your_supabase_publishable_key_here
 
 ## Production Checklist
 
-1. Set `TESTING_NO_PLAY_LIMIT = false` in `src/hooks/usePlayLimit.js`
+1. Set `VITE_TESTING_NO_PLAY_LIMIT=false` in deployment env
 2. Ensure Supabase env vars are valid in deployment environment
 3. Ensure `supabase_setup.sql` has been executed on target database
-4. Verify leaderboard writes by completing one game end-to-end
+4. Ensure Supabase Auth email provider and redirect URLs are configured
+5. Verify leaderboard writes by completing one game end-to-end
 
 ## Troubleshooting
 
@@ -150,6 +168,6 @@ VITE_SUPABASE_ANON_KEY=your_supabase_publishable_key_here
 Check:
 
 1. Supabase env values are loaded (`.env` and server restarted)
-2. `players` and `game_sessions` tables exist
+2. `players`, `game_sessions`, and `private.device_bindings` exist
 3. RLS policies were created from `supabase_setup.sql`
-4. Player is registered/synced in Supabase (not only old local cache)
+4. User is verified and signed in, then profile is claimed via `claim_device_profile`
