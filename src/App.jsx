@@ -13,80 +13,87 @@ import GameResult from './components/GameResult.jsx'
 import Leaderboard from './components/Leaderboard.jsx'
 
 const PLAYER_KEY = 'og_player'
-const PENDING_NAME_KEY = 'og_pending_player_name'
-
-function fallbackNameFromEmail(email) {
-  const [raw] = (email || '').split('@')
-  const cleaned = (raw || 'Player').replace(/[^a-zA-Z0-9_ ]/g, '').trim()
-  return cleaned.slice(0, 20) || 'Player'
-}
+const PLAYER_SESSION_KEY = 'og_player_session'
 
 function normalizePlayerName(name) {
   const cleaned = (name || '').trim().replace(/\s+/g, ' ')
   return cleaned.slice(0, 20)
 }
 
-function formatClaimError(error) {
+function normalizeUsername(value) {
+  return (value || '').trim().toLowerCase()
+}
+
+function extractRpcRow(data) {
+  if (Array.isArray(data)) return data[0] || null
+  return data || null
+}
+
+function formatAuthError(error) {
   const msg = error?.message || ''
+  if (msg.includes('invalid_credentials')) return 'Invalid username or password.'
+  if (msg.includes('invalid_admin_credentials')) return 'Invalid admin credentials.'
+  if (msg.includes('invalid_session')) return 'Session expired. Please login again.'
+  if (msg.includes('missing_session')) return 'Session missing. Please login again.'
+  if (msg.includes('missing_fingerprint')) return 'Could not verify this device. Please retry.'
   if (msg.includes('device_already_registered')) return 'This device is already linked to another account.'
   if (msg.includes('account_locked_to_another_device')) return 'This account is locked to another device.'
-  if (msg.includes('player_name_taken')) return 'This player name is already taken.'
-  if (msg.includes('invalid_player_name')) return 'Name must be 2-20 chars (letters, numbers, spaces, underscore).'
-  if (msg.includes('missing_player_name')) return 'Please choose a player name first.'
-  if (msg.includes('missing_fingerprint')) return 'Could not verify this device. Please try again.'
-  if (msg.includes('Token has expired') || msg.includes('invalid')) return 'Invalid or expired OTP. Please request a new code.'
-  if (msg.includes('Email rate limit exceeded')) return 'Too many OTP requests. Please wait and try again.'
-  if (msg.includes('Signups not allowed')) return 'Signups are currently disabled for this project.'
+  if (msg.includes('player_name_taken')) return 'Player name is already taken.'
+  if (msg.includes('player_username_taken')) return 'Player username is already taken.'
+  if (msg.includes('invalid_player_name')) return 'Player name must be 2-20 chars (letters, numbers, spaces, underscore).'
+  if (msg.includes('invalid_username')) return 'Username must be 3-30 chars (letters, numbers, dot, underscore, dash).'
+  if (msg.includes('invalid_password')) return 'Password must be at least 6 characters.'
+  if (msg.includes('admin_already_initialized')) return 'Admin is already initialized.'
   return 'Authentication failed. Please try again.'
 }
 
 export default function App() {
   const [view, setView] = useState('loading')
   const [player, setPlayer] = useState(null)
+  const [sessionToken, setSessionToken] = useState('')
+  const [deviceFingerprint, setDeviceFingerprint] = useState('')
+  const [pendingPasswordReset, setPendingPasswordReset] = useState(null)
+  const [adminBootstrapRequired, setAdminBootstrapRequired] = useState(false)
   const [weeklyScore, setWeeklyScore] = useState(0)
   const [gameConfig, setGameConfig] = useState(null)
   const [gameResult, setGameResult] = useState(null)
   const [authNotice, setAuthNotice] = useState('')
 
-  const loadWeeklyScore = useCallback(async playerId => {
-    if (!supabase || !playerId) return
-    const { data } = await supabase
-      .from('game_sessions')
-      .select('score')
-      .eq('player_id', playerId)
-      .eq('week_start', getWeekStart())
-    if (data) setWeeklyScore(data.reduce((s, r) => s + r.score, 0))
+  const getDeviceFingerprint = useCallback(async () => {
+    if (deviceFingerprint) return deviceFingerprint
+    const fp = await generateFingerprint()
+    setDeviceFingerprint(fp)
+    return fp
+  }, [deviceFingerprint])
+
+  const refreshAdminBootstrapStatus = useCallback(async () => {
+    if (!supabase) {
+      setAdminBootstrapRequired(false)
+      return
+    }
+    const { data, error } = await supabase.rpc('needs_admin_bootstrap')
+    if (!error) {
+      setAdminBootstrapRequired(Boolean(data))
+    }
   }, [])
 
-  const hydrateSignedInPlayer = useCallback(async (session, preferredName) => {
-    if (!supabase || !session?.user) throw new Error('Authentication failed. Please sign in again.')
-
-    const fingerprint = await generateFingerprint()
-    const suggestedName = normalizePlayerName(
-      preferredName
-        || localStorage.getItem(PENDING_NAME_KEY)
-        || session.user.user_metadata?.player_name
-        || fallbackNameFromEmail(session.user.email)
-    )
-
-    const { data, error } = await supabase.rpc('claim_device_profile', {
+  const loadWeeklyScore = useCallback(async ({ playerId, token, fingerprint }) => {
+    if (!supabase || !playerId || !token || !fingerprint) return
+    const { data, error } = await supabase.rpc('get_player_weekly_score', {
+      _session_token: token,
       _fp_hash: fingerprint,
-      _name: suggestedName || null,
+      _week_start: getWeekStart(),
     })
-
     if (error) throw error
+    setWeeklyScore(Number(data) || 0)
+  }, [])
 
-    localStorage.setItem(PLAYER_KEY, JSON.stringify(data))
-    localStorage.removeItem(PENDING_NAME_KEY)
-    setPlayer(data)
-    await loadWeeklyScore(data.id)
-    setAuthNotice('')
-    setView('hub')
-  }, [loadWeeklyScore])
-
-  const resetToSignedOutState = useCallback(async () => {
+  const resetToSignedOutState = useCallback(() => {
     localStorage.removeItem(PLAYER_KEY)
+    localStorage.removeItem(PLAYER_SESSION_KEY)
     setPlayer(null)
+    setSessionToken('')
+    setPendingPasswordReset(null)
     setWeeklyScore(0)
     setView('registration')
   }, [])
@@ -94,7 +101,7 @@ export default function App() {
   useEffect(() => {
     async function init() {
       if (!supabase) {
-        const fp = await generateFingerprint()
+        const fp = await getDeviceFingerprint()
         const saved = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null')
         if (saved?.fingerprint === fp) {
           setPlayer(saved)
@@ -106,39 +113,65 @@ export default function App() {
         return
       }
 
-      const { data: sessionData } = await supabase.auth.getSession()
-      const session = sessionData?.session
-      if (!session) {
-        await resetToSignedOutState()
+      await refreshAdminBootstrapStatus()
+
+      const savedPlayer = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null')
+      const savedSession = JSON.parse(localStorage.getItem(PLAYER_SESSION_KEY) || 'null')
+      if (!savedSession?.sessionToken) {
+        setView('registration')
         return
       }
 
       try {
-        await hydrateSignedInPlayer(session)
+        const fp = await getDeviceFingerprint()
+        const { data, error } = await supabase.rpc('get_player_session', {
+          _session_token: savedSession.sessionToken,
+          _fp_hash: fp,
+        })
+        if (error) throw error
+        const row = extractRpcRow(data)
+        if (!row) throw new Error('invalid_session')
+
+        const restoredPlayer = {
+          id: row.player_id || savedPlayer?.id,
+          name: row.player_name || savedPlayer?.name || 'Player',
+          fingerprint: fp,
+        }
+
+        localStorage.setItem(PLAYER_KEY, JSON.stringify(restoredPlayer))
+        setSessionToken(savedSession.sessionToken)
+
+        if (row.must_reset_password) {
+          setPendingPasswordReset({
+            player: restoredPlayer,
+            sessionToken: savedSession.sessionToken,
+          })
+          setAuthNotice('Please set your password before playing.')
+          setView('registration')
+          return
+        }
+
+        setPendingPasswordReset(null)
+        setPlayer(restoredPlayer)
+        await loadWeeklyScore({
+          playerId: restoredPlayer.id,
+          token: savedSession.sessionToken,
+          fingerprint: fp,
+        })
+        setAuthNotice('')
+        setView('hub')
       } catch (error) {
-        await supabase.auth.signOut()
-        setAuthNotice(formatClaimError(error))
-        await resetToSignedOutState()
+        setAuthNotice(formatAuthError(error))
+        resetToSignedOutState()
       }
     }
 
     init()
-
-    if (!supabase) return undefined
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        void resetToSignedOutState()
-      }
-    })
-
-    return () => {
-      authListener.subscription.unsubscribe()
-    }
-  }, [hydrateSignedInPlayer, resetToSignedOutState])
+  }, [getDeviceFingerprint, loadWeeklyScore, refreshAdminBootstrapStatus, resetToSignedOutState])
 
   async function handleLocalRegister(name) {
     const normalizedName = normalizePlayerName(name)
-    const fp = await generateFingerprint()
+    const fp = await getDeviceFingerprint()
     const demo = { id: crypto.randomUUID(), name: normalizedName, fingerprint: fp }
     localStorage.setItem(PLAYER_KEY, JSON.stringify(demo))
     setPlayer(demo)
@@ -146,75 +179,105 @@ export default function App() {
     setView('hub')
   }
 
-  async function handleSendOtp(payload) {
+  async function handlePlayerLogin(payload) {
     if (!payload) return
-
     if (!supabase) {
-      await handleLocalRegister(payload.name)
+      await handleLocalRegister(payload.username)
       return
     }
 
-    const email = (payload.email || '').trim().toLowerCase()
-    const mode = payload.mode === 'signin' ? 'signin' : 'signup'
-    const name = normalizePlayerName(payload.name)
+    const fp = await getDeviceFingerprint()
+    const username = normalizeUsername(payload.username)
+    const password = payload.password || ''
 
-    if (mode === 'signup') {
-      const fp = await generateFingerprint()
-      const [{ data: isDeviceAvailable, error: deviceError }, { data: isNameAvailable, error: nameError }] = await Promise.all([
-        supabase.rpc('is_device_available', { _fp_hash: fp }),
-        supabase.rpc('is_player_name_available', { _name: name }),
-      ])
-
-      if (deviceError || nameError) throw new Error('Could not validate sign-up. Please try again.')
-      if (!isDeviceAvailable) throw new Error('This device is already linked to another account.')
-      if (!isNameAvailable) throw new Error('That player name is already taken.')
-
-      localStorage.setItem(PENDING_NAME_KEY, name)
-    } else {
-      localStorage.removeItem(PENDING_NAME_KEY)
-    }
-
-    const otpOptions = mode === 'signup'
-      ? {
-          shouldCreateUser: true,
-          data: { player_name: name },
-        }
-      : {
-          shouldCreateUser: false,
-        }
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: otpOptions,
+    const { data, error } = await supabase.rpc('player_sign_in', {
+      _username: username,
+      _password: password,
+      _fp_hash: fp,
     })
 
-    if (error) throw new Error(formatClaimError(error), { cause: error })
-    setAuthNotice(`OTP sent to ${email}.`)
+    if (error) throw new Error(formatAuthError(error), { cause: error })
+
+    const row = extractRpcRow(data)
+    if (!row?.session_token) throw new Error('Authentication failed. Please try again.')
+
+    const nextPlayer = {
+      id: row.player_id,
+      name: row.player_name,
+      fingerprint: fp,
+    }
+    const nextToken = row.session_token
+
+    localStorage.setItem(PLAYER_KEY, JSON.stringify(nextPlayer))
+    localStorage.setItem(PLAYER_SESSION_KEY, JSON.stringify({ sessionToken: nextToken }))
+    setSessionToken(nextToken)
+
+    if (row.must_reset_password) {
+      setPendingPasswordReset({
+        player: nextPlayer,
+        sessionToken: nextToken,
+      })
+      setPlayer(null)
+      setWeeklyScore(0)
+      setAuthNotice('First login detected. Set a new password to continue.')
+      setView('registration')
+      return
+    }
+
+    setPendingPasswordReset(null)
+    setPlayer(nextPlayer)
+    await loadWeeklyScore({ playerId: nextPlayer.id, token: nextToken, fingerprint: fp })
+    setAuthNotice('')
+    setView('hub')
   }
 
-  async function handleVerifyOtp(payload) {
-    if (!payload || !supabase) return
+  async function handleSetFirstPassword(payload) {
+    if (!supabase || !pendingPasswordReset?.sessionToken) return
+    const password = payload?.password || ''
+    const fp = await getDeviceFingerprint()
 
-    const email = (payload.email || '').trim().toLowerCase()
-    const token = (payload.token || '').trim()
-    const mode = payload.mode === 'signin' ? 'signin' : 'signup'
-    const name = normalizePlayerName(payload.name)
-
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: mode === 'signup' ? 'signup' : 'email',
+    const { error } = await supabase.rpc('player_set_password', {
+      _session_token: pendingPasswordReset.sessionToken,
+      _fp_hash: fp,
+      _new_password: password,
     })
+    if (error) throw new Error(formatAuthError(error), { cause: error })
 
-    if (error) throw new Error(formatClaimError(error), { cause: error })
-    if (!data?.session) throw new Error('OTP verification failed. Please request a new code.')
+    setPendingPasswordReset(null)
+    setPlayer(pendingPasswordReset.player)
+    await loadWeeklyScore({
+      playerId: pendingPasswordReset.player.id,
+      token: pendingPasswordReset.sessionToken,
+      fingerprint: fp,
+    })
+    setAuthNotice('')
+    setView('hub')
+  }
 
-    try {
-      await hydrateSignedInPlayer(data.session, mode === 'signup' ? name : undefined)
-    } catch (claimError) {
-      await supabase.auth.signOut()
-      throw new Error(formatClaimError(claimError), { cause: claimError })
-    }
+  async function handleBootstrapAdmin(payload) {
+    if (!payload || !supabase) return
+    const { error } = await supabase.rpc('bootstrap_admin', {
+      _username: normalizeUsername(payload.username),
+      _password: payload.password,
+    })
+    if (error) throw new Error(formatAuthError(error), { cause: error })
+
+    await refreshAdminBootstrapStatus()
+    setAuthNotice('First admin created. You can now create player accounts.')
+  }
+
+  async function handleCreatePlayer(payload) {
+    if (!payload || !supabase) return
+    const { error } = await supabase.rpc('admin_create_player', {
+      _admin_username: normalizeUsername(payload.adminUsername),
+      _admin_password: payload.adminPassword,
+      _player_name: normalizePlayerName(payload.playerName),
+      _player_username: normalizeUsername(payload.playerUsername),
+      _temporary_password: payload.temporaryPassword,
+    })
+    if (error) throw new Error(formatAuthError(error), { cause: error })
+
+    setAuthNotice(`Player "${normalizeUsername(payload.playerUsername)}" created successfully.`)
   }
 
   async function handlePlay() {
@@ -239,17 +302,22 @@ export default function App() {
 
     recordPlay(gameConfig.type)
     setLastGameType(gameConfig.type)
-    if (supabase && player?.id) {
-      await supabase.from('game_sessions').insert({
-        player_id: player.id,
-        game_type: gameConfig.type,
-        difficulty: gameConfig.difficulty,
-        score: total,
-        correct_answers: correct,
-        wrong_answers: wrong,
-        week_start: getWeekStart(),
+
+    if (supabase && player?.id && sessionToken) {
+      const fp = player.fingerprint || await getDeviceFingerprint()
+      const { error } = await supabase.rpc('record_player_game_session', {
+        _session_token: sessionToken,
+        _fp_hash: fp,
+        _game_type: gameConfig.type,
+        _difficulty: gameConfig.difficulty,
+        _score: total,
+        _correct_answers: correct,
+        _wrong_answers: wrong,
+        _week_start: getWeekStart(),
       })
+      if (error) throw error
     }
+
     setWeeklyScore(prev => prev + total)
     setGameResult({
       score: total,
@@ -275,14 +343,19 @@ export default function App() {
   if (view === 'registration') {
     return (
       <Registration
-        onSendOtp={handleSendOtp}
-        onVerifyOtp={handleVerifyOtp}
+        onPlayerLogin={handlePlayerLogin}
+        onSetFirstPassword={handleSetFirstPassword}
+        onCreatePlayer={handleCreatePlayer}
+        onBootstrapAdmin={handleBootstrapAdmin}
         onRegisterLocal={handleLocalRegister}
         notice={authNotice}
         requiresAuth={Boolean(supabase)}
+        requiresPasswordReset={Boolean(pendingPasswordReset)}
+        adminBootstrapRequired={adminBootstrapRequired}
       />
     )
   }
+
   if (view === 'hub') return <GameHub player={player} weeklyScore={weeklyScore} onPlay={handlePlay} onLeaderboard={() => setView('leaderboard')} />
   if (view === 'game') return <GameScreen config={gameConfig} onEnd={handleGameEnd} />
   if (view === 'result') {

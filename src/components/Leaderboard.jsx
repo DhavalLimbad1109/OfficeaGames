@@ -20,23 +20,15 @@ export default function Leaderboard({ player, onBack }) {
     try {
       if (supabase) {
         const weekStart = getWeekStart()
-        const { data, error } = await supabase
-          .from('game_sessions')
-          .select('score, player_id, players(name)')
-          .eq('week_start', weekStart)
+        const { data, error } = await supabase.rpc('get_weekly_leaderboard', {
+          _week_start: weekStart,
+        })
         if (error) throw error
-
-        // Aggregate by player
-        const map = {}
-        for (const row of data) {
-          const name = row.players?.name || 'Unknown'
-          if (!map[name]) map[name] = { name, totalScore: 0, games: 0 }
-          map[name].totalScore += row.score
-          map[name].games += 1
-        }
-
-        const sorted = Object.values(map).sort((a, b) => b.totalScore - a.totalScore)
-        setRows(sorted)
+        setRows((data || []).map(row => ({
+          name: row.name,
+          totalScore: Number(row.total_score) || 0,
+          games: Number(row.games) || 0,
+        })))
       } else {
         setRows([])
       }

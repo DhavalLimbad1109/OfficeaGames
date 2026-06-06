@@ -4,9 +4,9 @@ OfficeGames is a React + Vite mini-game app for quick 2-3 minute brain games in 
 
 ## Features
 
-- One-player-per-device registration using a system-level fingerprint
-- Email OTP auth (Supabase Auth) with in-app OTP verification screen
-- Unique player name enforcement (case-insensitive)
+- Admin-managed player accounts (username + password)
+- First-login password reset for newly created players
+- One-player-per-device lock using a system-level fingerprint
 - 6 active random game types with no immediate repeat:
   - Anagram Rush
   - Zip Puzzle
@@ -57,8 +57,8 @@ Final score:
 
 - React 19
 - Vite 8
-- Supabase (Auth + shared leaderboard data)
-- localStorage (play history + local player cache)
+- Supabase (RPC + shared leaderboard data)
+- localStorage (play history + local player/session cache)
 
 ## Project Structure
 
@@ -74,7 +74,7 @@ src/
     gameUtils.js
     scoring.js
     weeklyReset.js
-supabase_setup.sql        # SQL script for schema + RLS
+supabase_setup.sql        # SQL script for schema + RPC auth flow + RLS
 ```
 
 ## Setup (Local Development)
@@ -101,14 +101,12 @@ supabase_setup.sql        # SQL script for schema + RLS
    - Open `supabase_setup.sql`
    - Execute all statements
 
-5. Configure Supabase Auth:
+5. In the app login screen:
 
-   - Enable Email provider in **Authentication -> Providers**
-   - In **Authentication -> URL Configuration**, set your Site URL to your app domain
-   - In **Authentication -> Email Templates**:
-     - **Magic Link** template should include `{{ .Token }}`
-     - **Confirm signup** template should include `{{ .Token }}`
-   - Keep email auth enabled for OTP sign-in/sign-up
+   - Open **Admin Panel**
+   - If no admin exists, create the first admin account
+   - Use admin credentials to create player accounts with temporary passwords
+   - Players login with username/password, then set a new password on first login
 
 6. Start app:
 
@@ -122,22 +120,33 @@ Created by `supabase_setup.sql`:
 
 - `players`
   - `id` UUID PK
-  - `auth_user_id` UUID UNIQUE -> `auth.users(id)`
   - `name` unique (case-insensitive index on `lower(name)`)
+  - `fingerprint` unique when present
+- `player_accounts`
+  - `player_id` unique FK -> `players(id)`
+  - `username` unique (case-insensitive)
+  - `password_hash` + `must_reset_password`
+- `admin_accounts`
+  - admin login credentials for creating players
 - `game_sessions`
   - `player_id` FK -> `players(id)`
   - per-game score + answer stats + `week_start`
-- `private.device_bindings`
-  - `auth_user_id` unique -> `auth.users(id)`
-  - `fp_hash` unique (device fingerprint hash)
+- `private.player_sessions`
+  - custom session token + fingerprint binding
 
 Main RPC functions:
 
-- `is_player_name_available(_name text)`
-- `is_device_available(_fp_hash text)`
-- `claim_device_profile(_fp_hash text, _name text)`
+- `needs_admin_bootstrap()`
+- `bootstrap_admin(_username text, _password text)`
+- `admin_create_player(_admin_username text, _admin_password text, _player_name text, _player_username text, _temporary_password text)`
+- `player_sign_in(_username text, _password text, _fp_hash text)`
+- `get_player_session(_session_token uuid, _fp_hash text)`
+- `player_set_password(_session_token uuid, _fp_hash text, _new_password text)`
+- `get_player_weekly_score(_session_token uuid, _fp_hash text, _week_start date)`
+- `record_player_game_session(_session_token uuid, _fp_hash text, ...)`
+- `get_weekly_leaderboard(_week_start date)`
 
-RLS is enabled on public tables and writes are scoped to authenticated users.
+RLS is enabled and direct table access is denied for API roles; client access is through RPC functions only.
 
 ## Environment Variables
 
@@ -161,16 +170,23 @@ VITE_TESTING_NO_PLAY_LIMIT=false
 1. Set `VITE_TESTING_NO_PLAY_LIMIT=false` in deployment env
 2. Ensure Supabase env vars are valid in deployment environment
 3. Ensure `supabase_setup.sql` has been executed on target database
-4. Ensure Supabase Auth email provider is enabled and both **Magic Link** + **Confirm signup** templates include `{{ .Token }}`
-5. Verify leaderboard writes by completing one game end-to-end
+4. Bootstrap first admin and create at least one player account
+5. Verify one player can login, play, and appear on leaderboard
 
 ## Troubleshooting
+
+### Login fails with invalid session
+
+Clear local storage and login again:
+
+- `og_player`
+- `og_player_session`
 
 ### Leaderboard not updating
 
 Check:
 
 1. Supabase env values are loaded (`.env` and server restarted)
-2. `players`, `game_sessions`, and `private.device_bindings` exist
-3. RLS policies were created from `supabase_setup.sql`
-4. User is verified and signed in, then profile is claimed via `claim_device_profile`
+2. `players`, `player_accounts`, `admin_accounts`, `game_sessions`, `private.player_sessions` exist
+3. `supabase_setup.sql` ran fully (RPC functions + grants + RLS)
+4. Player logged in successfully and game writes use `record_player_game_session`
