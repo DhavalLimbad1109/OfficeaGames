@@ -101,7 +101,7 @@ export default function App() {
     async function init() {
       if (!supabase) {
         const saved = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null')
-        if (saved?.name) {
+        if (saved?.id && saved?.name?.trim()) {
           setPlayer(saved)
           setWeeklyScore(0)
           setView('hub')
