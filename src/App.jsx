@@ -36,8 +36,6 @@ function formatAuthError(error) {
   if (msg.includes('invalid_session')) return 'Session expired. Please login again.'
   if (msg.includes('missing_session')) return 'Session missing. Please login again.'
   if (msg.includes('missing_fingerprint')) return 'Could not verify this device. Please retry.'
-  if (msg.includes('device_already_registered')) return 'This device is already linked to another account.'
-  if (msg.includes('account_locked_to_another_device')) return 'This account is locked to another device.'
   if (msg.includes('player_name_taken')) return 'Player name is already taken.'
   if (msg.includes('player_username_taken')) return 'Player username is already taken.'
   if (msg.includes('invalid_player_name')) return 'Player name must be 2-20 chars (letters, numbers, spaces, underscore).'
@@ -102,9 +100,8 @@ export default function App() {
   useEffect(() => {
     async function init() {
       if (!supabase) {
-        const fp = await getDeviceFingerprint()
         const saved = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null')
-        if (saved?.fingerprint === fp) {
+        if (saved?.name) {
           setPlayer(saved)
           setWeeklyScore(0)
           setView('hub')

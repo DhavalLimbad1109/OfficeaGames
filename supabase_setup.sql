@@ -43,7 +43,6 @@ BEGIN
 END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_players_name_lower ON public.players (LOWER(name));
-CREATE UNIQUE INDEX IF NOT EXISTS idx_players_fingerprint ON public.players (fingerprint) WHERE fingerprint IS NOT NULL;
 
 -- Login credentials for players.
 CREATE TABLE IF NOT EXISTS public.player_accounts (
@@ -349,24 +348,6 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'invalid_credentials';
   END IF;
-
-  IF v_account.fingerprint IS NOT NULL AND v_account.fingerprint <> v_fp THEN
-    RAISE EXCEPTION 'account_locked_to_another_device';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1
-    FROM public.players p
-    WHERE p.fingerprint = v_fp
-      AND p.id <> v_account.player_id
-  ) THEN
-    RAISE EXCEPTION 'device_already_registered';
-  END IF;
-
-  UPDATE public.players
-  SET fingerprint = COALESCE(fingerprint, v_fp),
-      updated_at = NOW()
-  WHERE id = v_account.player_id;
 
   v_token := gen_random_uuid();
 
