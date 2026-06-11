@@ -14,17 +14,24 @@ const GAME_MAP = {
   wordsearch:      WordSearch,
 }
 
-export default function GameScreen({ config, onEnd }) {
+export default function GameScreen({ config, onEnd, onClose }) {
   const GameComponent = GAME_MAP[config.type]
   if (!GameComponent) return <div>Unknown game type</div>
 
   return (
-    <GameComponent
-      key={config.type}
-      questions={config.questions}
-      difficulty={config.difficulty}
-      totalTime={config.totalTime}
-      onEnd={onEnd}
-    />
+    <>
+      <div className="game-exit-bar">
+        <button className="btn-secondary small game-close-btn" onClick={onClose}>
+          ✖ Close Game
+        </button>
+      </div>
+      <GameComponent
+        key={config.type}
+        questions={config.questions}
+        difficulty={config.difficulty}
+        totalTime={config.totalTime}
+        onEnd={onEnd}
+      />
+    </>
   )
 }

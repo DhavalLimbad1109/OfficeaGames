@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './lib/supabase.js'
 import { generateFingerprint } from './utils/fingerprint.js'
 import { getDifficultyFromScore, calculateFinalScore, DIFFICULTY_CONFIG } from './utils/scoring.js'
@@ -58,6 +58,7 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState(null)
   const [gameResult, setGameResult] = useState(null)
   const [authNotice, setAuthNotice] = useState('')
+  const gameEndedRef = useRef(false)
 
   const getDeviceFingerprint = useCallback(async () => {
     if (deviceFingerprint) return deviceFingerprint
@@ -283,6 +284,7 @@ export default function App() {
   async function handlePlay() {
     const status = getPlayStatus()
     if (status.playsRemaining <= 0) return
+    gameEndedRef.current = false
     const gameType = pickRandomGame(getLastGameType())
     const difficulty = getDifficultyFromScore(weeklyScore)
     const { timeSeconds } = DIFFICULTY_CONFIG[difficulty]
@@ -293,6 +295,9 @@ export default function App() {
   }
 
   async function handleGameEnd(gameOutcome) {
+    if (gameEndedRef.current || !gameConfig) return
+    gameEndedRef.current = true
+
     const normalized = Array.isArray(gameOutcome)
       ? { answers: gameOutcome, hintsUsed: 0 }
       : { answers: gameOutcome?.answers ?? [], hintsUsed: gameOutcome?.hintsUsed ?? 0 }
@@ -331,6 +336,10 @@ export default function App() {
     setView('result')
   }
 
+  async function handleCloseGame() {
+    await handleGameEnd({ answers: [], hintsUsed: 0 })
+  }
+
   if (view === 'loading') return (
     <div className="screen-center">
       <div className="loading-card">
@@ -357,7 +366,7 @@ export default function App() {
   }
 
   if (view === 'hub') return <GameHub player={player} weeklyScore={weeklyScore} onPlay={handlePlay} onLeaderboard={() => setView('leaderboard')} />
-  if (view === 'game') return <GameScreen config={gameConfig} onEnd={handleGameEnd} />
+  if (view === 'game') return <GameScreen config={gameConfig} onEnd={handleGameEnd} onClose={handleCloseGame} />
   if (view === 'result') {
     const { playsRemaining } = getPlayStatus()
     return <GameResult result={gameResult} playsRemaining={playsRemaining} onPlayAgain={handlePlay} onHub={() => setView('hub')} onLeaderboard={() => setView('leaderboard')} />
