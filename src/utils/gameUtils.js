@@ -5,6 +5,10 @@ export const GAME_TYPES = [
   'numbersequence',
   'wordassociation',
   'wordsearch',
+  'truefalse',
+  'oddoneout',
+  'trivia',
+  'memorymatch',
 ]
 
 export const GAME_META = {
@@ -14,6 +18,10 @@ export const GAME_META = {
   numbersequence:  { name: 'Number Sequence',  emoji: '🔢', color: '#10b981' },
   wordassociation: { name: 'Word Association', emoji: '💭', color: '#ec4899' },
   wordsearch:      { name: 'Word Search',      emoji: '🔠', color: '#00d4ff' },
+  truefalse:       { name: 'True/False Blitz', emoji: '⚡', color: '#ef4444' },
+  oddoneout:       { name: 'Odd One Out',      emoji: '🔍', color: '#8b5cf6' },
+  trivia:          { name: 'Trivia Quiz',      emoji: '🧠', color: '#06b6d4' },
+  memorymatch:     { name: 'Memory Match',     emoji: '🃏', color: '#f472b6' },
 }
 
 export function pickRandomGame(lastGameType) {

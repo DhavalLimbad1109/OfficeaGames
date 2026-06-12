@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Timer from '../Timer.jsx'
 import { shuffle } from '../../utils/gameUtils.js'
+import { playCorrect, playWrong } from '../../utils/sounds.js'
 
 export default function OddOneOut({ questions, difficulty, totalTime, onEnd }) {
   const [idx, setIdx] = useState(0)
@@ -14,7 +15,7 @@ export default function OddOneOut({ questions, difficulty, totalTime, onEnd }) {
 
   useEffect(() => {
     if (q) {
-      setShuffledOptions(shuffle(q.options))
+      setShuffledOptions(shuffle(q.options || q.items))
       setChosen(null)
     }
   }, [idx])
@@ -22,7 +23,7 @@ export default function OddOneOut({ questions, difficulty, totalTime, onEnd }) {
   const endGame = useCallback((finalAnswers) => {
     if (ended) return
     setEnded(true)
-    onEnd(finalAnswers)
+    onEnd({ answers: finalAnswers, hintsUsed: 0 })
   }, [ended, onEnd])
 
   useEffect(() => {
@@ -39,6 +40,7 @@ export default function OddOneOut({ questions, difficulty, totalTime, onEnd }) {
   function handleAnswer(option) {
     if (chosen) return
     const correct = option === q.answer
+    correct ? playCorrect() : playWrong()
     setChosen(option)
     const newAnswers = [...answers, { correct, timeLeft }]
     setTimeout(() => {

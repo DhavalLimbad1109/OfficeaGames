@@ -320,10 +320,13 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, private
 AS $$
+#variable_conflict use_column
 DECLARE
   v_username TEXT := LOWER(NULLIF(TRIM(_username), ''));
   v_fp TEXT := NULLIF(TRIM(_fp_hash), '');
-  v_account RECORD;
+  v_pid UUID;
+  v_pname TEXT;
+  v_must_reset BOOLEAN;
   v_token UUID;
 BEGIN
   IF v_username IS NULL OR COALESCE(LENGTH(_password), 0) = 0 THEN
@@ -336,10 +339,9 @@ BEGIN
 
   SELECT
     pa.player_id,
-    p.name AS player_name,
-    p.fingerprint,
+    p.name,
     pa.must_reset_password
-  INTO v_account
+  INTO v_pid, v_pname, v_must_reset
   FROM public.player_accounts pa
   JOIN public.players p ON p.id = pa.player_id
   WHERE LOWER(pa.username) = v_username
@@ -360,7 +362,7 @@ BEGIN
   )
   VALUES (
     v_token,
-    v_account.player_id,
+    v_pid,
     v_fp,
     NOW() + INTERVAL '30 days',
     NOW()
@@ -371,12 +373,11 @@ BEGIN
       expires_at = EXCLUDED.expires_at,
       last_seen_at = EXCLUDED.last_seen_at;
 
-  RETURN QUERY
-  SELECT
-    v_account.player_id,
-    v_account.player_name,
-    v_token,
-    v_account.must_reset_password;
+  player_id := v_pid;
+  player_name := v_pname;
+  session_token := v_token;
+  must_reset_password := v_must_reset;
+  RETURN NEXT;
 END;
 $$;
 
@@ -624,3 +625,708 @@ GRANT EXECUTE ON FUNCTION public.get_player_weekly_score(UUID, TEXT, DATE) TO an
 GRANT EXECUTE ON FUNCTION public.record_player_game_session(UUID, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER, DATE) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_weekly_leaderboard(DATE) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.player_sign_out(UUID, TEXT) TO anon, authenticated;
+
+-- ══════════════════════════════════════════════════════════════════
+-- Extended features: questions, daily challenges, stats, achievements
+-- ══════════════════════════════════════════════════════════════════
+
+-- Game questions table
+CREATE TABLE IF NOT EXISTS public.game_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_type TEXT NOT NULL,
+  difficulty TEXT NOT NULL,
+  question_data JSONB NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  times_shown INTEGER NOT NULL DEFAULT 0,
+  times_correct INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_questions_type_diff ON public.game_questions (game_type, difficulty);
+
+-- Daily challenges table
+CREATE TABLE IF NOT EXISTS public.daily_challenges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  challenge_date DATE NOT NULL UNIQUE,
+  game_type TEXT NOT NULL,
+  difficulty TEXT NOT NULL,
+  questions JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Daily scores table
+CREATE TABLE IF NOT EXISTS public.daily_scores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  challenge_date DATE NOT NULL,
+  player_id UUID NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL DEFAULT 0,
+  correct_answers INTEGER NOT NULL DEFAULT 0,
+  wrong_answers INTEGER NOT NULL DEFAULT 0,
+  played_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (challenge_date, player_id)
+);
+
+-- Achievements table
+CREATE TABLE IF NOT EXISTS public.achievements (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'general',
+  threshold INTEGER NOT NULL DEFAULT 1
+);
+
+-- Player achievements table
+CREATE TABLE IF NOT EXISTS public.player_achievements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  player_id UUID NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
+  achievement_id TEXT NOT NULL REFERENCES public.achievements(id) ON DELETE CASCADE,
+  earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (player_id, achievement_id)
+);
+
+-- RLS for new tables
+ALTER TABLE public.game_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_challenges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_scores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.achievements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.player_achievements ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS game_questions_no_direct ON public.game_questions;
+CREATE POLICY game_questions_no_direct ON public.game_questions FOR ALL TO anon, authenticated USING (FALSE) WITH CHECK (FALSE);
+DROP POLICY IF EXISTS daily_challenges_no_direct ON public.daily_challenges;
+CREATE POLICY daily_challenges_no_direct ON public.daily_challenges FOR ALL TO anon, authenticated USING (FALSE) WITH CHECK (FALSE);
+DROP POLICY IF EXISTS daily_scores_no_direct ON public.daily_scores;
+CREATE POLICY daily_scores_no_direct ON public.daily_scores FOR ALL TO anon, authenticated USING (FALSE) WITH CHECK (FALSE);
+DROP POLICY IF EXISTS achievements_no_direct ON public.achievements;
+CREATE POLICY achievements_no_direct ON public.achievements FOR ALL TO anon, authenticated USING (FALSE) WITH CHECK (FALSE);
+DROP POLICY IF EXISTS player_achievements_no_direct ON public.player_achievements;
+CREATE POLICY player_achievements_no_direct ON public.player_achievements FOR ALL TO anon, authenticated USING (FALSE) WITH CHECK (FALSE);
+
+REVOKE ALL ON TABLE public.game_questions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.daily_challenges FROM anon, authenticated;
+REVOKE ALL ON TABLE public.daily_scores FROM anon, authenticated;
+REVOKE ALL ON TABLE public.achievements FROM anon, authenticated;
+REVOKE ALL ON TABLE public.player_achievements FROM anon, authenticated;
+
+-- Seed achievements
+INSERT INTO public.achievements (id, title, description, icon, category, threshold) VALUES
+  ('first_win', 'First Victory', 'Win your first game', '🏆', 'general', 1),
+  ('games_5', 'Getting Started', 'Play 5 games', '🎮', 'general', 5),
+  ('games_25', 'Regular Player', 'Play 25 games', '🎯', 'general', 25),
+  ('games_50', 'Dedicated Gamer', 'Play 50 games', '⭐', 'general', 50),
+  ('games_100', 'Century Club', 'Play 100 games', '💯', 'general', 100),
+  ('score_50', 'Half Century', 'Score 50+ in a single game', '🔥', 'score', 50),
+  ('score_100', 'Triple Digits', 'Score 100+ in a single game', '💫', 'score', 100),
+  ('perfect_score', 'Perfectionist', 'Get 100% accuracy in a game', '💎', 'score', 1),
+  ('streak_3', 'On a Roll', 'Play 3 days in a row', '🔥', 'streak', 3),
+  ('streak_7', 'Week Warrior', 'Play 7 days in a row', '⚡', 'streak', 7),
+  ('streak_14', 'Fortnight Fighter', 'Play 14 days in a row', '🌟', 'streak', 14),
+  ('streak_30', 'Monthly Master', 'Play 30 days in a row', '👑', 'streak', 30),
+  ('speed_demon', 'Speed Demon', 'Answer 5 questions correctly in under 10 seconds each', '⚡', 'special', 5),
+  ('all_games', 'Jack of All Trades', 'Play every game type at least once', '🃏', 'special', 1),
+  ('medium_unlock', 'Level Up', 'Unlock medium difficulty', '🔼', 'general', 1),
+  ('hard_unlock', 'Elite Player', 'Unlock hard difficulty', '🔶', 'general', 1),
+  ('leaderboard_top3', 'Podium Finish', 'Finish in the top 3 of the weekly leaderboard', '🏅', 'special', 1),
+  ('daily_first', 'Daily Challenger', 'Complete your first daily challenge', '📅', 'daily', 1),
+  ('daily_10', 'Daily Devotee', 'Complete 10 daily challenges', '🗓️', 'daily', 10)
+ON CONFLICT (id) DO NOTHING;
+
+-- ── Extended RPC functions ──
+
+CREATE OR REPLACE FUNCTION public.admin_add_question(_admin_username text, _admin_password text, _game_type text, _difficulty text, _question_data jsonb)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+  v_id UUID;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  IF _difficulty NOT IN ('easy', 'medium', 'hard') THEN
+    RAISE EXCEPTION 'invalid_difficulty';
+  END IF;
+
+  INSERT INTO public.game_questions (game_type, difficulty, question_data)
+  VALUES (TRIM(_game_type), _difficulty, _question_data)
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_delete_question(_admin_username text, _admin_password text, _question_id uuid)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  DELETE FROM public.game_questions WHERE id = _question_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'question_not_found';
+  END IF;
+
+  RETURN TRUE;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_get_question_stats(_admin_username text, _admin_password text)
+ RETURNS TABLE(game_type text, difficulty text, total_count bigint, active_count bigint)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  RETURN QUERY
+  SELECT gq.game_type, gq.difficulty, COUNT(*)::BIGINT, COUNT(*) FILTER (WHERE gq.active)::BIGINT
+  FROM game_questions gq
+  GROUP BY gq.game_type, gq.difficulty
+  ORDER BY gq.game_type, gq.difficulty;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_get_stats(_admin_username text, _admin_password text)
+ RETURNS TABLE(total_players bigint, total_games_played bigint, games_today bigint, games_this_week bigint, total_questions bigint, active_questions bigint)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    (SELECT COUNT(*) FROM players)::BIGINT,
+    (SELECT COUNT(*) FROM game_sessions)::BIGINT,
+    (SELECT COUNT(*) FROM game_sessions WHERE played_at::date = CURRENT_DATE)::BIGINT,
+    (SELECT COUNT(*) FROM game_sessions WHERE played_at > NOW() - INTERVAL '7 days')::BIGINT,
+    (SELECT COUNT(*) FROM game_questions)::BIGINT,
+    (SELECT COUNT(*) FROM game_questions WHERE active = TRUE)::BIGINT;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_get_top_players(_admin_username text, _admin_password text, _limit integer DEFAULT 10)
+ RETURNS TABLE(player_name text, total_games bigint, total_score bigint, last_played timestamp with time zone)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  RETURN QUERY
+  SELECT p.name, COUNT(gs.id)::BIGINT, COALESCE(SUM(gs.score), 0)::BIGINT, MAX(gs.played_at)
+  FROM players p
+  LEFT JOIN game_sessions gs ON gs.player_id = p.id
+  GROUP BY p.id, p.name
+  ORDER BY COALESCE(SUM(gs.score), 0) DESC, COUNT(gs.id) DESC
+  LIMIT _limit;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_list_questions(_admin_username text, _admin_password text, _game_type text DEFAULT NULL::text, _difficulty text DEFAULT NULL::text)
+ RETURNS TABLE(id uuid, game_type text, difficulty text, question_data jsonb, active boolean, created_at timestamp with time zone)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  RETURN QUERY
+  SELECT gq.id, gq.game_type, gq.difficulty, gq.question_data, gq.active, gq.created_at
+  FROM public.game_questions gq
+  WHERE (_game_type IS NULL OR gq.game_type = _game_type)
+    AND (_difficulty IS NULL OR gq.difficulty = _difficulty)
+  ORDER BY gq.game_type, gq.difficulty, gq.created_at DESC;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.admin_toggle_question(_admin_username text, _admin_password text, _question_id uuid)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_admin TEXT := LOWER(NULLIF(TRIM(_admin_username), ''));
+  v_active BOOLEAN;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.admin_accounts a
+    WHERE LOWER(a.username) = v_admin
+      AND a.password_hash = extensions.crypt(_admin_password, a.password_hash)
+  ) THEN
+    RAISE EXCEPTION 'invalid_admin_credentials';
+  END IF;
+
+  UPDATE public.game_questions
+  SET active = NOT active, updated_at = NOW()
+  WHERE id = _question_id
+  RETURNING active INTO v_active;
+
+  IF v_active IS NULL THEN
+    RAISE EXCEPTION 'question_not_found';
+  END IF;
+
+  RETURN v_active;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.award_achievement(_session_token uuid, _fp_hash text, _achievement_id text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private'
+AS $function$
+DECLARE
+  v_pid UUID;
+BEGIN
+  v_pid := private.resolve_player_session(_session_token, _fp_hash);
+  INSERT INTO player_achievements (player_id, achievement_id)
+  VALUES (v_pid, _achievement_id)
+  ON CONFLICT (player_id, achievement_id) DO NOTHING;
+  RETURN TRUE;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.check_and_award_achievements(
+  _session_token UUID,
+  _fp_hash TEXT,
+  _game_score INTEGER DEFAULT 0,
+  _correct INTEGER DEFAULT 0,
+  _wrong INTEGER DEFAULT 0,
+  _difficulty TEXT DEFAULT 'easy',
+  _time_remaining_pct NUMERIC DEFAULT 0
+)
+RETURNS TABLE(achievement_id TEXT, title TEXT, icon TEXT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'private'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_pid UUID;
+  v_total_games BIGINT;
+  v_distinct_types BIGINT;
+  v_daily_count BIGINT;
+  v_current_streak INTEGER := 0;
+  v_max_streak INTEGER := 0;
+  v_prev_date DATE := NULL;
+  v_accuracy NUMERIC := 0;
+  r RECORD;
+BEGIN
+  v_pid := private.resolve_player_session(_session_token, _fp_hash);
+
+  SELECT COUNT(*) INTO v_total_games FROM game_sessions WHERE player_id = v_pid;
+  SELECT COUNT(DISTINCT game_type) INTO v_distinct_types FROM game_sessions WHERE player_id = v_pid;
+  SELECT COUNT(*) INTO v_daily_count FROM daily_scores WHERE player_id = v_pid;
+
+  IF (_correct + _wrong) > 0 THEN
+    v_accuracy := _correct::NUMERIC / (_correct + _wrong) * 100;
+  END IF;
+
+  FOR r IN
+    SELECT DISTINCT played_at::date AS play_date
+    FROM game_sessions WHERE player_id = v_pid ORDER BY play_date DESC
+  LOOP
+    IF v_prev_date IS NULL OR v_prev_date - r.play_date = 1 THEN
+      v_current_streak := v_current_streak + 1;
+    ELSE
+      IF v_prev_date IS NOT NULL THEN
+        v_max_streak := GREATEST(v_max_streak, v_current_streak);
+        v_current_streak := 1;
+      END IF;
+    END IF;
+    v_prev_date := r.play_date;
+  END LOOP;
+  v_max_streak := GREATEST(v_max_streak, v_current_streak);
+  IF v_prev_date IS NOT NULL AND (CURRENT_DATE - v_prev_date) > 1 THEN
+    v_current_streak := 0;
+  END IF;
+
+  CREATE TEMP TABLE IF NOT EXISTS _new_achievements (
+    achievement_id TEXT, title TEXT, icon TEXT
+  ) ON COMMIT DROP;
+  DELETE FROM _new_achievements;
+
+  -- Milestone achievements
+  IF v_total_games >= 1 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'first_win') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'first_win', a.title, a.icon FROM achievements a WHERE a.id = 'first_win'; END IF;
+  END IF;
+  IF v_total_games >= 5 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'games_5') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'games_5', a.title, a.icon FROM achievements a WHERE a.id = 'games_5'; END IF;
+  END IF;
+  IF v_total_games >= 25 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'games_25') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'games_25', a.title, a.icon FROM achievements a WHERE a.id = 'games_25'; END IF;
+  END IF;
+  IF v_total_games >= 50 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'games_50') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'games_50', a.title, a.icon FROM achievements a WHERE a.id = 'games_50'; END IF;
+  END IF;
+  IF v_total_games >= 100 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'games_100') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'games_100', a.title, a.icon FROM achievements a WHERE a.id = 'games_100'; END IF;
+  END IF;
+
+  -- Score achievements
+  IF _game_score >= 50 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'score_50') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'score_50', a.title, a.icon FROM achievements a WHERE a.id = 'score_50'; END IF;
+  END IF;
+  IF _game_score >= 100 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'score_100') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'score_100', a.title, a.icon FROM achievements a WHERE a.id = 'score_100'; END IF;
+  END IF;
+
+  -- Skill achievements
+  IF v_accuracy >= 100 AND (_correct + _wrong) >= 5 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'perfect_score') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'perfect_score', a.title, a.icon FROM achievements a WHERE a.id = 'perfect_score'; END IF;
+  END IF;
+  IF _correct >= 8 AND _time_remaining_pct >= 50 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'speed_demon') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'speed_demon', a.title, a.icon FROM achievements a WHERE a.id = 'speed_demon'; END IF;
+  END IF;
+
+  -- Difficulty achievements
+  IF _difficulty = 'medium' THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'medium_unlock') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'medium_unlock', a.title, a.icon FROM achievements a WHERE a.id = 'medium_unlock'; END IF;
+  END IF;
+  IF _difficulty = 'hard' THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'hard_unlock') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'hard_unlock', a.title, a.icon FROM achievements a WHERE a.id = 'hard_unlock'; END IF;
+  END IF;
+
+  -- Exploration
+  IF v_distinct_types >= 6 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'all_games') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'all_games', a.title, a.icon FROM achievements a WHERE a.id = 'all_games'; END IF;
+  END IF;
+
+  -- Streak achievements
+  IF v_current_streak >= 3 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'streak_3') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'streak_3', a.title, a.icon FROM achievements a WHERE a.id = 'streak_3'; END IF;
+  END IF;
+  IF v_current_streak >= 7 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'streak_7') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'streak_7', a.title, a.icon FROM achievements a WHERE a.id = 'streak_7'; END IF;
+  END IF;
+  IF v_current_streak >= 14 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'streak_14') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'streak_14', a.title, a.icon FROM achievements a WHERE a.id = 'streak_14'; END IF;
+  END IF;
+  IF v_current_streak >= 30 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'streak_30') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'streak_30', a.title, a.icon FROM achievements a WHERE a.id = 'streak_30'; END IF;
+  END IF;
+
+  -- Daily achievements
+  IF v_daily_count >= 1 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'daily_first') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'daily_first', a.title, a.icon FROM achievements a WHERE a.id = 'daily_first'; END IF;
+  END IF;
+  IF v_daily_count >= 10 THEN
+    INSERT INTO player_achievements (player_id, achievement_id) VALUES (v_pid, 'daily_10') ON CONFLICT DO NOTHING;
+    IF FOUND THEN INSERT INTO _new_achievements SELECT 'daily_10', a.title, a.icon FROM achievements a WHERE a.id = 'daily_10'; END IF;
+  END IF;
+
+  RETURN QUERY SELECT * FROM _new_achievements;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.check_player_is_admin(_session_token uuid, _fp_hash text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private'
+AS $function$
+DECLARE
+  v_player_id UUID;
+  v_username TEXT;
+BEGIN
+  v_player_id := private.resolve_player_session(_session_token, _fp_hash);
+
+  SELECT pa.username INTO v_username
+  FROM public.player_accounts pa
+  WHERE pa.player_id = v_player_id;
+
+  RETURN EXISTS (
+    SELECT 1 FROM public.admin_accounts a
+    WHERE LOWER(a.username) = LOWER(v_username)
+  );
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.get_daily_challenge(_today date DEFAULT CURRENT_DATE)
+ RETURNS TABLE(challenge_date date, game_type text, difficulty text, questions jsonb, already_played boolean)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_challenge RECORD;
+  v_game_types TEXT[] := ARRAY['anagram','emojidecode','numbersequence','wordassociation','truefalse','oddoneout','trivia'];
+  v_difficulties TEXT[] := ARRAY['easy','medium','hard'];
+  v_gt TEXT;
+  v_diff TEXT;
+  v_qs JSONB;
+BEGIN
+  SELECT * INTO v_challenge FROM daily_challenges dc WHERE dc.challenge_date = _today;
+
+  IF NOT FOUND THEN
+    v_gt := v_game_types[1 + (EXTRACT(DOY FROM _today)::INT % array_length(v_game_types, 1))];
+    v_diff := v_difficulties[1 + (EXTRACT(DOY FROM _today)::INT % array_length(v_difficulties, 1))];
+
+    INSERT INTO daily_challenges (challenge_date, game_type, difficulty, questions)
+    VALUES (_today, v_gt, v_diff, '[]'::jsonb)
+    ON CONFLICT (challenge_date) DO NOTHING
+    RETURNING * INTO v_challenge;
+
+    IF NOT FOUND THEN
+      SELECT * INTO v_challenge FROM daily_challenges dc WHERE dc.challenge_date = _today;
+    END IF;
+  END IF;
+
+  -- Fetch fresh random questions each time (different per player)
+  SELECT jsonb_agg(gq.question_data ORDER BY random()) INTO v_qs
+  FROM (
+    SELECT question_data FROM game_questions
+    WHERE game_type = v_challenge.game_type AND difficulty = v_challenge.difficulty AND active = TRUE
+    ORDER BY random() LIMIT 10
+  ) gq;
+
+  IF v_qs IS NULL OR jsonb_array_length(v_qs) = 0 THEN
+    SELECT jsonb_agg(gq.question_data ORDER BY random()) INTO v_qs
+    FROM (
+      SELECT question_data FROM game_questions
+      WHERE game_type = v_challenge.game_type AND active = TRUE
+      ORDER BY random() LIMIT 10
+    ) gq;
+  END IF;
+
+  RETURN QUERY
+  SELECT v_challenge.challenge_date, v_challenge.game_type, v_challenge.difficulty, COALESCE(v_qs, '[]'::jsonb), FALSE;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.get_daily_leaderboard(_challenge_date date DEFAULT CURRENT_DATE)
+ RETURNS TABLE(name text, score integer, correct_answers integer, wrong_answers integer)
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT p.name, ds.score, ds.correct_answers, ds.wrong_answers
+  FROM daily_scores ds
+  JOIN players p ON p.id = ds.player_id
+  WHERE ds.challenge_date = _challenge_date
+  ORDER BY ds.score DESC, ds.correct_answers DESC
+  LIMIT 50;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.get_game_questions(_game_type text, _difficulty text, _count integer DEFAULT 10)
+ RETURNS SETOF jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT question_data
+  FROM public.game_questions
+  WHERE game_type = _game_type
+    AND difficulty = _difficulty
+    AND active = TRUE
+  ORDER BY random()
+  LIMIT _count;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.get_player_achievements(_session_token uuid, _fp_hash text)
+ RETURNS TABLE(achievement_id text, title text, description text, icon text, category text, earned_at timestamp with time zone)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_pid UUID;
+BEGIN
+  v_pid := private.resolve_player_session(_session_token, _fp_hash);
+  RETURN QUERY
+  SELECT a.id, a.title, a.description, a.icon, a.category, pa.earned_at
+  FROM achievements a
+  LEFT JOIN player_achievements pa ON pa.achievement_id = a.id AND pa.player_id = v_pid
+  ORDER BY pa.earned_at IS NOT NULL DESC, a.category, a.threshold;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.get_player_stats(_session_token uuid, _fp_hash text)
+ RETURNS TABLE(total_games bigint, total_correct bigint, total_wrong bigint, accuracy numeric, best_score integer, current_streak integer, longest_streak integer, favorite_game text)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private'
+AS $function$
+#variable_conflict use_column
+DECLARE
+  v_pid UUID;
+  v_streak INTEGER := 0;
+  v_max_streak INTEGER := 0;
+  v_prev_date DATE := NULL;
+  r RECORD;
+BEGIN
+  v_pid := private.resolve_player_session(_session_token, _fp_hash);
+
+  -- Calculate streaks from daily play dates
+  FOR r IN
+    SELECT DISTINCT played_at::date AS play_date
+    FROM game_sessions WHERE player_id = v_pid
+    ORDER BY play_date DESC
+  LOOP
+    IF v_prev_date IS NULL OR v_prev_date - r.play_date = 1 THEN
+      v_streak := v_streak + 1;
+    ELSE
+      IF v_prev_date IS NOT NULL THEN
+        v_max_streak := GREATEST(v_max_streak, v_streak);
+        v_streak := 1;
+      END IF;
+    END IF;
+    v_prev_date := r.play_date;
+  END LOOP;
+  v_max_streak := GREATEST(v_max_streak, v_streak);
+
+  -- Check if current streak is still active (played today or yesterday)
+  IF v_prev_date IS NULL OR (CURRENT_DATE - v_prev_date > 1 AND v_streak = v_max_streak) THEN
+    v_streak := 0;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    COUNT(*)::BIGINT,
+    COALESCE(SUM(gs.correct_answers), 0)::BIGINT,
+    COALESCE(SUM(gs.wrong_answers), 0)::BIGINT,
+    CASE WHEN SUM(gs.correct_answers) + SUM(gs.wrong_answers) > 0
+      THEN ROUND(SUM(gs.correct_answers)::NUMERIC / (SUM(gs.correct_answers) + SUM(gs.wrong_answers)) * 100, 1)
+      ELSE 0 END,
+    COALESCE(MAX(gs.score), 0)::INTEGER,
+    v_streak,
+    v_max_streak,
+    (SELECT gs2.game_type FROM game_sessions gs2 WHERE gs2.player_id = v_pid
+     GROUP BY gs2.game_type ORDER BY COUNT(*) DESC LIMIT 1)
+  FROM game_sessions gs
+  WHERE gs.player_id = v_pid;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.has_played_daily(_session_token uuid, _fp_hash text, _challenge_date date DEFAULT CURRENT_DATE)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private'
+AS $function$
+DECLARE
+  v_pid UUID;
+BEGIN
+  v_pid := private.resolve_player_session(_session_token, _fp_hash);
+  RETURN EXISTS (SELECT 1 FROM daily_scores WHERE challenge_date = _challenge_date AND player_id = v_pid);
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.record_daily_score(_session_token uuid, _fp_hash text, _challenge_date date, _score integer, _correct integer, _wrong integer)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'private'
+AS $function$
+DECLARE
+  v_pid UUID;
+BEGIN
+  v_pid := private.resolve_player_session(_session_token, _fp_hash);
+
+  INSERT INTO daily_scores (challenge_date, player_id, score, correct_answers, wrong_answers)
+  VALUES (_challenge_date, v_pid, _score, _correct, _wrong)
+  ON CONFLICT (challenge_date, player_id) DO NOTHING;
+
+  RETURN TRUE;
+END;
+$function$
+;
+CREATE OR REPLACE FUNCTION public.update_question_stats(_game_type text, _question_data jsonb, _correct boolean)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  UPDATE game_questions
+  SET times_shown = times_shown + 1,
+      times_correct = times_correct + CASE WHEN _correct THEN 1 ELSE 0 END
+  WHERE game_type = _game_type
+    AND question_data = _question_data
+    AND active = TRUE;
+END;
+$function$
+;

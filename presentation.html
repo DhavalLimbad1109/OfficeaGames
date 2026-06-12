@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OfficeGames - Presentation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #060e1a;
+    --surface: #0d1f35;
+    --primary: #0ea5e9;
+    --cyan: #22d3ee;
+    --teal: #2dd4bf;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --purple: #a78bfa;
+    --pink: #f472b6;
+    --text: #e2f0ff;
+    --muted: #5b8aad;
+    --border: #1a3a5c;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* ── Animated background ── */
+  .bg-canvas {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(14,165,233,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 110%, rgba(34,211,238,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 30% at 50% 50%, rgba(139,92,246,0.05) 0%, transparent 70%);
+  }
+
+  .orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.4;
+    animation: orbFloat 20s ease-in-out infinite;
+    z-index: 0;
+  }
+  .orb-1 { width: 400px; height: 400px; background: rgba(14,165,233,0.15); top: -100px; left: -100px; animation-delay: 0s; }
+  .orb-2 { width: 300px; height: 300px; background: rgba(139,92,246,0.12); bottom: -80px; right: -80px; animation-delay: -7s; }
+  .orb-3 { width: 250px; height: 250px; background: rgba(34,211,238,0.10); top: 50%; left: 60%; animation-delay: -14s; }
+
+  @keyframes orbFloat {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    25% { transform: translate(40px, -30px) scale(1.1); }
+    50% { transform: translate(-20px, 40px) scale(0.95); }
+    75% { transform: translate(30px, 20px) scale(1.05); }
+  }
+
+  /* ── Particles ── */
+  .particle {
+    position: fixed;
+    width: 3px; height: 3px;
+    background: rgba(14,165,233,0.3);
+    border-radius: 50%;
+    animation: particleRise linear infinite;
+    z-index: 0;
+  }
+  @keyframes particleRise {
+    0% { transform: translateY(100vh) scale(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-100px) scale(1); opacity: 0; }
+  }
+
+  /* ── Slide system ── */
+  .slides-container {
+    position: relative;
+    width: 100%; height: 100%;
+    z-index: 1;
+  }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 60px 80px;
+    opacity: 0;
+    transform: translateX(60px);
+    transition: all 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .slide.active {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: all;
+    z-index: 2;
+  }
+  .slide.exit-left {
+    opacity: 0;
+    transform: translateX(-60px);
+  }
+
+  /* ── Navigation ── */
+  .nav-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 40px;
+    background: rgba(6,14,26,0.85);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(26,58,92,0.4);
+    z-index: 100;
+  }
+  .nav-btn {
+    padding: 10px 28px;
+    border-radius: 10px;
+    border: 1.5px solid var(--primary);
+    background: transparent;
+    color: var(--primary);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .nav-btn:hover { background: rgba(14,165,233,0.15); box-shadow: 0 0 20px rgba(14,165,233,0.2); }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .nav-btn:disabled:hover { background: transparent; box-shadow: none; }
+
+  .progress-dots {
+    display: flex; gap: 8px;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(14,165,233,0.2);
+    border: 1px solid rgba(14,165,233,0.3);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .dot.active {
+    background: var(--primary);
+    box-shadow: 0 0 12px rgba(14,165,233,0.5);
+    transform: scale(1.3);
+  }
+  .dot.visited { background: rgba(14,165,233,0.5); }
+
+  .slide-counter {
+    font-size: 0.8rem; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Typography ── */
+  .slide-title {
+    font-size: 3.2rem;
+    font-weight: 900;
+    line-height: 1.15;
+    margin-bottom: 20px;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, var(--primary), var(--cyan), var(--teal));
+    background-size: 200% 200%;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradientShift 4s ease infinite;
+  }
+  .gradient-text-warm {
+    background: linear-gradient(135deg, var(--yellow), #f97316, var(--red));
+    background-size: 200% 200%;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradientShift 4s ease infinite;
+  }
+  .gradient-text-purple {
+    background: linear-gradient(135deg, var(--purple), var(--pink), var(--cyan));
+    background-size: 200% 200%;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradientShift 4s ease infinite;
+  }
+  @keyframes gradientShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .slide-subtitle {
+    font-size: 1.3rem;
+    color: var(--muted);
+    text-align: center;
+    max-width: 700px;
+    line-height: 1.6;
+    font-weight: 400;
+  }
+
+  .big-emoji {
+    font-size: 5rem;
+    margin-bottom: 24px;
+    animation: float 3s ease-in-out infinite;
+    filter: drop-shadow(0 8px 24px rgba(0,0,0,0.3));
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+  }
+
+  /* ── Content blocks ── */
+  .content-row {
+    display: flex; gap: 28px;
+    margin-top: 32px;
+    width: 100%;
+    max-width: 1000px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .glass-card {
+    background: rgba(13,31,53,0.7);
+    border: 1px solid rgba(26,58,92,0.5);
+    border-radius: 20px;
+    padding: 28px 24px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    transition: all 0.3s;
+  }
+  .glass-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(14,165,233,0.15);
+    border-color: rgba(14,165,233,0.3);
+  }
+
+  .problem-card {
+    flex: 1; min-width: 200px; max-width: 280px;
+    text-align: center;
+  }
+  .problem-card .card-icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .problem-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+  .problem-card p { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+
+  .game-card {
+    width: 180px; text-align: center; padding: 24px 16px;
+    position: relative; overflow: hidden;
+  }
+  .game-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 20px 20px 0 0;
+  }
+  .game-card .card-emoji { font-size: 2.2rem; margin-bottom: 10px; }
+  .game-card h4 { font-size: 0.9rem; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .game-card p { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+
+  .feature-card {
+    flex: 1; min-width: 220px; max-width: 300px;
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 22px 20px;
+  }
+  .feature-icon {
+    font-size: 1.6rem; flex-shrink: 0;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(14,165,233,0.1);
+    border: 1px solid rgba(14,165,233,0.2);
+    border-radius: 12px;
+  }
+  .feature-info h4 { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; }
+  .feature-info p { font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+
+  .stat-block {
+    text-align: center; min-width: 140px;
+    padding: 24px 20px;
+  }
+  .stat-number {
+    font-size: 2.8rem; font-weight: 900;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .stat-label {
+    font-size: 0.8rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
+  /* ── Animate-in children ── */
+  .slide.active .anim-1 { animation: slideUp 0.6s ease-out 0.1s both; }
+  .slide.active .anim-2 { animation: slideUp 0.6s ease-out 0.25s both; }
+  .slide.active .anim-3 { animation: slideUp 0.6s ease-out 0.4s both; }
+  .slide.active .anim-4 { animation: slideUp 0.6s ease-out 0.55s both; }
+  .slide.active .anim-5 { animation: slideUp 0.6s ease-out 0.7s both; }
+  .slide.active .anim-6 { animation: slideUp 0.6s ease-out 0.85s both; }
+  .slide.active .anim-7 { animation: slideUp 0.6s ease-out 1.0s both; }
+  .slide.active .anim-8 { animation: slideUp 0.6s ease-out 1.15s both; }
+  .slide.active .anim-9 { animation: slideUp 0.6s ease-out 1.3s both; }
+  .slide.active .anim-10 { animation: slideUp 0.6s ease-out 1.45s both; }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Flow diagram ── */
+  .flow-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 32px; flex-wrap: wrap; justify-content: center;
+  }
+  .flow-step {
+    text-align: center; padding: 20px 16px; width: 140px;
+  }
+  .flow-step .card-emoji { font-size: 1.8rem; margin-bottom: 8px; }
+  .flow-step h4 { font-size: 0.82rem; font-weight: 700; color: var(--text); }
+  .flow-step p { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
+  .flow-arrow {
+    font-size: 1.5rem; color: var(--primary);
+    animation: arrowPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes arrowPulse {
+    0%, 100% { opacity: 0.4; transform: translateX(0); }
+    50% { opacity: 1; transform: translateX(4px); }
+  }
+
+  /* ── Benefit bars ── */
+  .benefit-list {
+    display: flex; flex-direction: column; gap: 14px;
+    margin-top: 28px; width: 100%; max-width: 650px;
+  }
+  .benefit-item {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 20px;
+  }
+  .benefit-bar {
+    height: 6px; border-radius: 3px; flex: 1;
+    background: rgba(14,165,233,0.1);
+    overflow: hidden;
+    position: relative;
+  }
+  .benefit-fill {
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--cyan));
+    width: 0;
+    transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .slide.active .benefit-fill { width: var(--fill); }
+  .benefit-label {
+    font-size: 0.85rem; font-weight: 600; min-width: 180px;
+  }
+  .benefit-pct {
+    font-size: 0.85rem; font-weight: 700; color: var(--cyan);
+    min-width: 48px; text-align: right;
+  }
+
+  /* ── Timeline ── */
+  .timeline {
+    display: flex; align-items: flex-start; gap: 0;
+    margin-top: 32px; max-width: 900px;
+    position: relative;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    top: 28px; left: 40px; right: 40px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--primary), var(--cyan), var(--teal));
+    opacity: 0.3;
+  }
+  .timeline-item {
+    flex: 1; text-align: center;
+    position: relative;
+    padding: 0 10px;
+  }
+  .timeline-dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 16px rgba(14,165,233,0.4);
+    margin: 20px auto 14px;
+    position: relative;
+    z-index: 2;
+  }
+  .timeline-item h4 {
+    font-size: 0.85rem; font-weight: 700; margin-bottom: 4px;
+  }
+  .timeline-item p {
+    font-size: 0.72rem; color: var(--muted); line-height: 1.4;
+  }
+
+  /* ── Title slide special ── */
+  .title-logo {
+    font-size: 7rem;
+    margin-bottom: 16px;
+    animation: float 3s ease-in-out infinite;
+    filter: drop-shadow(0 12px 32px rgba(14,165,233,0.3));
+  }
+  .title-main {
+    font-size: 4.5rem;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    margin-bottom: 12px;
+  }
+  .title-tagline {
+    font-size: 1.4rem;
+    color: var(--muted);
+    font-weight: 400;
+    margin-bottom: 36px;
+  }
+  .title-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 24px;
+    background: rgba(14,165,233,0.1);
+    border: 1px solid rgba(14,165,233,0.25);
+    border-radius: 30px;
+    font-size: 0.85rem;
+    color: var(--cyan);
+    font-weight: 500;
+  }
+  .title-pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.5); }
+  }
+
+  /* ── Quote block ── */
+  .quote-block {
+    max-width: 700px;
+    text-align: center;
+    padding: 32px;
+    position: relative;
+  }
+  .quote-mark {
+    font-size: 5rem;
+    color: rgba(14,165,233,0.15);
+    line-height: 1;
+    font-family: Georgia, serif;
+  }
+  .quote-text {
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--text);
+    font-style: italic;
+    margin: -20px 0 16px;
+  }
+  .quote-author {
+    font-size: 0.9rem;
+    color: var(--muted);
+    font-style: normal;
+  }
+
+  /* ── CTA slide ── */
+  .cta-btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 18px 48px;
+    background: linear-gradient(135deg, var(--primary), var(--cyan));
+    color: #fff;
+    border: none; border-radius: 16px;
+    font-family: 'Inter', sans-serif;
+    font-size: 1.2rem; font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 32px rgba(14,165,233,0.4);
+    transition: all 0.3s;
+    animation: pulseGlow 3s ease-in-out infinite;
+    margin-top: 24px;
+  }
+  .cta-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 48px rgba(14,165,233,0.6);
+  }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 8px 32px rgba(14,165,233,0.3); }
+    50% { box-shadow: 0 8px 48px rgba(14,165,233,0.6); }
+  }
+
+  /* ── Color accents for game cards ── */
+  .gc-blue::before   { background: linear-gradient(90deg, #0ea5e9, #22d3ee); }
+  .gc-green::before  { background: linear-gradient(90deg, #34d399, #2dd4bf); }
+  .gc-purple::before { background: linear-gradient(90deg, #a78bfa, #c084fc); }
+  .gc-orange::before { background: linear-gradient(90deg, #f97316, #fbbf24); }
+  .gc-red::before    { background: linear-gradient(90deg, #f87171, #fb923c); }
+  .gc-pink::before   { background: linear-gradient(90deg, #f472b6, #a78bfa); }
+  .gc-cyan::before   { background: linear-gradient(90deg, #22d3ee, #2dd4bf); }
+  .gc-teal::before   { background: linear-gradient(90deg, #2dd4bf, #34d399); }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .slide { padding: 40px 24px; }
+    .title-main { font-size: 2.8rem; }
+    .title-logo { font-size: 5rem; }
+    .slide-title { font-size: 2.2rem; }
+    .slide-subtitle { font-size: 1.05rem; }
+    .content-row { gap: 16px; }
+    .game-card { width: 140px; padding: 18px 12px; }
+    .nav-bar { padding: 12px 20px; }
+  }
+
+  /* keyboard hint */
+  .key-hint {
+    position: fixed;
+    bottom: 68px;
+    right: 40px;
+    font-size: 0.7rem;
+    color: rgba(91,138,173,0.4);
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<!-- Background effects -->
+<div class="bg-canvas"></div>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<script>
+// Generate floating particles
+for (let i = 0; i < 25; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.style.left = Math.random() * 100 + '%';
+  p.style.animationDuration = (8 + Math.random() * 12) + 's';
+  p.style.animationDelay = -(Math.random() * 20) + 's';
+  p.style.width = p.style.height = (2 + Math.random() * 3) + 'px';
+  p.style.background = ['rgba(14,165,233,0.25)','rgba(34,211,238,0.2)','rgba(139,92,246,0.2)','rgba(45,212,191,0.2)'][Math.floor(Math.random()*4)];
+  document.body.appendChild(p);
+}
+</script>
+
+<!-- Slides -->
+<div class="slides-container">
+
+  <!-- SLIDE 1: Title -->
+  <div class="slide active" data-slide="0">
+    <div class="title-logo anim-1">&#x1F3AE;</div>
+    <h1 class="title-main anim-2"><span class="gradient-text">OfficeGames</span></h1>
+    <p class="title-tagline anim-3">Recharge Your Mind. 2 Minutes. 2 Games. Every Day.</p>
+    <div class="title-badge anim-4">
+      <span class="title-pulse"></span>
+      Brain-Boosting Mini-Games for the Modern Workplace
+    </div>
+  </div>
+
+  <!-- SLIDE 2: The Problem -->
+  <div class="slide" data-slide="1">
+    <div class="big-emoji anim-1">&#x1F62E;&#x200D;&#x1F4A8;</div>
+    <h2 class="slide-title anim-2">The <span class="gradient-text-warm">Problem</span></h2>
+    <p class="slide-subtitle anim-3">Sitting at a desk for 8 hours straight isn't just physically draining &mdash; it's mentally exhausting</p>
+    <div class="content-row">
+      <div class="glass-card problem-card anim-4">
+        <div class="card-icon">&#x1F971;</div>
+        <h3>Mental Fatigue</h3>
+        <p>Continuous screen time leads to cognitive decline, reduced focus, and decision fatigue throughout the day</p>
+      </div>
+      <div class="glass-card problem-card anim-5">
+        <div class="card-icon">&#x1F4C9;</div>
+        <h3>Productivity Drop</h3>
+        <p>After 90 min of focused work, the brain needs a reset. Without it, error rates spike by 50%</p>
+      </div>
+      <div class="glass-card problem-card anim-6">
+        <div class="card-icon">&#x1F614;</div>
+        <h3>Low Morale</h3>
+        <p>Monotonous routines kill motivation. Employees feel disconnected and disengaged over time</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: The Insight -->
+  <div class="slide" data-slide="2">
+    <div class="anim-1">
+      <div class="quote-block">
+        <div class="quote-mark">&ldquo;</div>
+        <p class="quote-text anim-2">A 2&ndash;3 minute brain break every few hours doesn't just feel good &mdash; it scientifically recharges focus, creativity, and problem-solving ability.</p>
+        <p class="quote-author anim-3">&mdash; Cognitive Neuroscience Research</p>
+      </div>
+    </div>
+    <div class="content-row" style="margin-top: 24px;">
+      <div class="glass-card stat-block anim-4">
+        <div class="stat-number gradient-text">40%</div>
+        <div class="stat-label">Boost in Focus</div>
+      </div>
+      <div class="glass-card stat-block anim-5">
+        <div class="stat-number gradient-text-warm">2-3 min</div>
+        <div class="stat-label">Is All It Takes</div>
+      </div>
+      <div class="glass-card stat-block anim-6">
+        <div class="stat-number gradient-text-purple">85%</div>
+        <div class="stat-label">Feel Refreshed</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 4: The Solution -->
+  <div class="slide" data-slide="3">
+    <div class="big-emoji anim-1">&#x1F4A1;</div>
+    <h2 class="slide-title anim-2">The <span class="gradient-text">Solution</span></h2>
+    <p class="slide-subtitle anim-3">OfficeGames &mdash; a quick, fun, and competitive brain-training platform built for office teams</p>
+    <div class="content-row">
+      <div class="glass-card feature-card anim-4">
+        <div class="feature-icon">&#x23F1;&#xFE0F;</div>
+        <div class="feature-info">
+          <h4>2 Games Per Session</h4>
+          <p>Quick rounds designed for micro-breaks. Play 2 games in under 3 minutes, then back to work &mdash; refreshed</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-5">
+        <div class="feature-icon">&#x1F9E0;</div>
+        <div class="feature-info">
+          <h4>Brain Training</h4>
+          <p>8 diverse game types targeting memory, logic, pattern recognition, vocabulary, and speed</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-6">
+        <div class="feature-icon">&#x1F3C6;</div>
+        <div class="feature-info">
+          <h4>Healthy Competition</h4>
+          <p>Weekly leaderboards, achievements, and daily challenges keep everyone motivated and connected</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: Game Types -->
+  <div class="slide" data-slide="4">
+    <h2 class="slide-title anim-1">8 <span class="gradient-text-purple">Brain Games</span></h2>
+    <p class="slide-subtitle anim-2">Each game targets a different cognitive skill. A random game is picked each round for variety.</p>
+    <div class="content-row" style="max-width: 860px;">
+      <div class="glass-card game-card gc-blue anim-3">
+        <div class="card-emoji">&#x1F524;</div>
+        <h4>Anagram Rush</h4>
+        <p>Unscramble letters to find the word</p>
+      </div>
+      <div class="glass-card game-card gc-orange anim-4">
+        <div class="card-emoji">&#x1F600;</div>
+        <h4>Emoji Decode</h4>
+        <p>Decode emoji combinations into words</p>
+      </div>
+      <div class="glass-card game-card gc-green anim-5">
+        <div class="card-emoji">&#x1F522;</div>
+        <h4>Number Sequence</h4>
+        <p>Find the missing number in a pattern</p>
+      </div>
+      <div class="glass-card game-card gc-purple anim-6">
+        <div class="card-emoji">&#x1F4AD;</div>
+        <h4>Word Association</h4>
+        <p>Match words to their closest association</p>
+      </div>
+      <div class="glass-card game-card gc-red anim-7">
+        <div class="card-emoji">&#x26A1;</div>
+        <h4>True / False</h4>
+        <p>Quick-fire fact checking under pressure</p>
+      </div>
+      <div class="glass-card game-card gc-cyan anim-8">
+        <div class="card-emoji">&#x1F9E0;</div>
+        <h4>Trivia Quiz</h4>
+        <p>Test general knowledge across topics</p>
+      </div>
+      <div class="glass-card game-card gc-pink anim-9">
+        <div class="card-emoji">&#x1F50D;</div>
+        <h4>Odd One Out</h4>
+        <p>Spot what doesn't belong in the group</p>
+      </div>
+      <div class="glass-card game-card gc-teal anim-10">
+        <div class="card-emoji">&#x1F0CF;</div>
+        <h4>Memory Match</h4>
+        <p>Flip cards and find matching pairs</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 6: How it Works -->
+  <div class="slide" data-slide="5">
+    <h2 class="slide-title anim-1">How It <span class="gradient-text">Works</span></h2>
+    <p class="slide-subtitle anim-2">Simple. Quick. No setup required by employees.</p>
+    <div class="flow-row">
+      <div class="glass-card flow-step anim-3">
+        <div class="card-emoji">&#x1F511;</div>
+        <h4>Login</h4>
+        <p>Admin creates accounts. Players log in.</p>
+      </div>
+      <span class="flow-arrow anim-4">&#x25B6;</span>
+      <div class="glass-card flow-step anim-4">
+        <div class="card-emoji">&#x1F3AE;</div>
+        <h4>Play</h4>
+        <p>Hit play &mdash; a random game starts instantly</p>
+      </div>
+      <span class="flow-arrow anim-5">&#x25B6;</span>
+      <div class="glass-card flow-step anim-5">
+        <div class="card-emoji">&#x1F4CA;</div>
+        <h4>Score</h4>
+        <p>Points based on speed &amp; accuracy</p>
+      </div>
+      <span class="flow-arrow anim-6">&#x25B6;</span>
+      <div class="glass-card flow-step anim-6">
+        <div class="card-emoji">&#x1F3C6;</div>
+        <h4>Compete</h4>
+        <p>Weekly leaderboard resets every Monday</p>
+      </div>
+      <span class="flow-arrow anim-7">&#x25B6;</span>
+      <div class="glass-card flow-step anim-7">
+        <div class="card-emoji">&#x1F525;</div>
+        <h4>Repeat</h4>
+        <p>2 games per session. Come back refreshed!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: Key Features -->
+  <div class="slide" data-slide="6">
+    <h2 class="slide-title anim-1">Key <span class="gradient-text-purple">Features</span></h2>
+    <div class="content-row" style="margin-top: 24px;">
+      <div class="glass-card feature-card anim-2">
+        <div class="feature-icon">&#x1F4C8;</div>
+        <div class="feature-info">
+          <h4>Adaptive Difficulty</h4>
+          <p>Auto-adjusts from Easy to Hard based on your weekly score. Always challenging, never frustrating.</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-3">
+        <div class="feature-icon">&#x1F31F;</div>
+        <div class="feature-info">
+          <h4>Daily Challenges</h4>
+          <p>A special challenge every day with its own leaderboard. Unique questions each time.</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-4">
+        <div class="feature-icon">&#x1F3C5;</div>
+        <div class="feature-info">
+          <h4>19 Achievements</h4>
+          <p>Milestones, streaks, skill badges, and more. Toast notifications celebrate each unlock.</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-5">
+        <div class="feature-icon">&#x1F50A;</div>
+        <div class="feature-info">
+          <h4>Sound &amp; Animations</h4>
+          <p>Satisfying audio feedback, confetti on great scores, and smooth animated transitions.</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-6">
+        <div class="feature-icon">&#x1F6E1;&#xFE0F;</div>
+        <div class="feature-info">
+          <h4>Admin Control</h4>
+          <p>Dashboard, player management, question CRUD, CSV bulk import. Full control for admins.</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-7">
+        <div class="feature-icon">&#x1F4F1;</div>
+        <div class="feature-info">
+          <h4>Works Everywhere</h4>
+          <p>Responsive design. Desktop, tablet, or phone. No app install needed &mdash; just open the browser.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 8: Benefits -->
+  <div class="slide" data-slide="7">
+    <div class="big-emoji anim-1">&#x1F680;</div>
+    <h2 class="slide-title anim-2">The <span class="gradient-text">Impact</span></h2>
+    <p class="slide-subtitle anim-3">What happens when teams take smart micro-breaks</p>
+    <div class="benefit-list">
+      <div class="glass-card benefit-item anim-4">
+        <span class="benefit-label">&#x1F9E0; Mental Freshness</span>
+        <div class="benefit-bar"><div class="benefit-fill" style="--fill: 92%"></div></div>
+        <span class="benefit-pct">92%</span>
+      </div>
+      <div class="glass-card benefit-item anim-5">
+        <span class="benefit-label">&#x1F3AF; Improved Focus</span>
+        <div class="benefit-bar"><div class="benefit-fill" style="--fill: 85%"></div></div>
+        <span class="benefit-pct">85%</span>
+      </div>
+      <div class="glass-card benefit-item anim-6">
+        <span class="benefit-label">&#x1F91D; Team Bonding</span>
+        <div class="benefit-bar"><div class="benefit-fill" style="--fill: 78%"></div></div>
+        <span class="benefit-pct">78%</span>
+      </div>
+      <div class="glass-card benefit-item anim-7">
+        <span class="benefit-label">&#x1F60A; Employee Morale</span>
+        <div class="benefit-bar"><div class="benefit-fill" style="--fill: 88%"></div></div>
+        <span class="benefit-pct">88%</span>
+      </div>
+      <div class="glass-card benefit-item anim-8">
+        <span class="benefit-label">&#x26A1; Afternoon Productivity</span>
+        <div class="benefit-bar"><div class="benefit-fill" style="--fill: 74%"></div></div>
+        <span class="benefit-pct">74%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 9: Tech Stack -->
+  <div class="slide" data-slide="8">
+    <h2 class="slide-title anim-1">Built With <span class="gradient-text">Modern Tech</span></h2>
+    <p class="slide-subtitle anim-2">Fast, secure, and production-ready</p>
+    <div class="content-row" style="margin-top: 28px;">
+      <div class="glass-card stat-block anim-3">
+        <div class="stat-number" style="font-size: 2rem;">&#x269B;&#xFE0F;</div>
+        <div class="stat-label" style="margin-top: 8px; font-size: 0.9rem; color: var(--text); font-weight: 600;">React 19</div>
+        <div class="stat-label">Frontend UI</div>
+      </div>
+      <div class="glass-card stat-block anim-4">
+        <div class="stat-number" style="font-size: 2rem;">&#x26A1;</div>
+        <div class="stat-label" style="margin-top: 8px; font-size: 0.9rem; color: var(--text); font-weight: 600;">Vite</div>
+        <div class="stat-label">Build Tool</div>
+      </div>
+      <div class="glass-card stat-block anim-5">
+        <div class="stat-number" style="font-size: 2rem;">&#x1F5C4;&#xFE0F;</div>
+        <div class="stat-label" style="margin-top: 8px; font-size: 0.9rem; color: var(--text); font-weight: 600;">Supabase</div>
+        <div class="stat-label">Backend + Auth</div>
+      </div>
+      <div class="glass-card stat-block anim-6">
+        <div class="stat-number" style="font-size: 2rem;">&#x1F418;</div>
+        <div class="stat-label" style="margin-top: 8px; font-size: 0.9rem; color: var(--text); font-weight: 600;">PostgreSQL</div>
+        <div class="stat-label">Database</div>
+      </div>
+      <div class="glass-card stat-block anim-7">
+        <div class="stat-number" style="font-size: 2rem;">&#x1F512;</div>
+        <div class="stat-label" style="margin-top: 8px; font-size: 0.9rem; color: var(--text); font-weight: 600;">RPC Auth</div>
+        <div class="stat-label">Security Layer</div>
+      </div>
+    </div>
+    <div class="content-row" style="margin-top: 16px;">
+      <div class="glass-card feature-card anim-8">
+        <div class="feature-icon">&#x1F6E1;&#xFE0F;</div>
+        <div class="feature-info">
+          <h4>Security First</h4>
+          <p>All data flows through SECURITY DEFINER functions. No direct table access. Device fingerprinting for session validation.</p>
+        </div>
+      </div>
+      <div class="glass-card feature-card anim-9">
+        <div class="feature-icon">&#x1F4E6;</div>
+        <div class="feature-info">
+          <h4>Self-Hosted</h4>
+          <p>Runs on your own infrastructure. No third-party dependencies. Full data ownership and privacy.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 10: CTA / Closing -->
+  <div class="slide" data-slide="9">
+    <div class="title-logo anim-1">&#x1F3AE;</div>
+    <h2 class="slide-title anim-2" style="font-size: 3rem;">
+      <span class="gradient-text">Recharge Minds.</span><br>
+      <span class="gradient-text-warm">Boost Productivity.</span><br>
+      <span class="gradient-text-purple">Build Team Spirit.</span>
+    </h2>
+    <p class="slide-subtitle anim-3" style="margin-top: 12px;">
+      Just 2 minutes a day for a happier, sharper, more connected team.
+    </p>
+    <button class="cta-btn anim-4" onclick="alert('Let\'s get started!')">
+      &#x1F680; Let's Play!
+    </button>
+    <p class="anim-5" style="margin-top: 32px; color: var(--muted); font-size: 0.85rem;">
+      OfficeGames &mdash; Where Work Meets Play
+    </p>
+  </div>
+
+</div>
+
+<!-- Navigation -->
+<div class="nav-bar">
+  <button class="nav-btn" id="prevBtn" onclick="navigate(-1)">&#x25C0; Prev</button>
+  <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+    <div class="progress-dots" id="dots"></div>
+    <span class="slide-counter" id="counter">1 / 10</span>
+  </div>
+  <button class="nav-btn" id="nextBtn" onclick="navigate(1)">Next &#x25B6;</button>
+</div>
+<div class="key-hint">Use &#x2190; &#x2192; arrow keys or click to navigate</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const dotsContainer = document.getElementById('dots');
+  const counter = document.getElementById('counter');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  let current = 0;
+  const total = slides.length;
+
+  // Create dots
+  for (let i = 0; i < total; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'dot' + (i === 0 ? ' active' : '');
+    dot.onclick = () => goTo(i);
+    dotsContainer.appendChild(dot);
+  }
+
+  function updateUI() {
+    slides.forEach((s, i) => {
+      s.classList.remove('active', 'exit-left');
+      if (i === current) s.classList.add('active');
+      else if (i < current) s.classList.add('exit-left');
+    });
+    document.querySelectorAll('.dot').forEach((d, i) => {
+      d.classList.remove('active');
+      d.classList.toggle('visited', i < current);
+      if (i === current) d.classList.add('active');
+    });
+    counter.textContent = (current + 1) + ' / ' + total;
+    prevBtn.disabled = current === 0;
+    nextBtn.disabled = current === total - 1;
+  }
+
+  function navigate(dir) {
+    const next = current + dir;
+    if (next >= 0 && next < total) {
+      current = next;
+      updateUI();
+    }
+  }
+
+  function goTo(idx) {
+    current = idx;
+    updateUI();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); navigate(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); navigate(-1); }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+  });
+
+  // Touch swipe support
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].screenX; });
+  document.addEventListener('touchend', e => {
+    const diff = e.changedTouches[0].screenX - touchStartX;
+    if (Math.abs(diff) > 50) navigate(diff > 0 ? -1 : 1);
+  });
+
+  updateUI();
+</script>
+
+</body>
+</html>
