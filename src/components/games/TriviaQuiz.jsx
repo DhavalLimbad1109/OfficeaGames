@@ -4,7 +4,7 @@ import { shuffle } from '../../utils/gameUtils.js'
 import { getHintPenaltyPerUse } from '../../utils/scoring.js'
 import { playCorrect, playWrong } from '../../utils/sounds.js'
 
-export default function NumberSequence({ questions, difficulty, totalTime, onEnd }) {
+export default function TriviaQuiz({ questions, difficulty, totalTime, onEnd }) {
   const [idx, setIdx] = useState(0)
   const [timeLeft, setTimeLeft] = useState(totalTime)
   const [answers, setAnswers] = useState([])
@@ -43,7 +43,7 @@ export default function NumberSequence({ questions, difficulty, totalTime, onEnd
   }, [ended, answers, endGame])
 
   function handleAnswer(choice) {
-    if (chosen !== null) return
+    if (chosen) return
     const correct = String(choice) === String(q.answer)
     correct ? playCorrect() : playWrong()
     setChosen(choice)
@@ -56,57 +56,45 @@ export default function NumberSequence({ questions, difficulty, totalTime, onEnd
   }
 
   function useHint() {
-    if (chosen !== null || hintEliminated.size > 0) return
-    const wrongChoices = shuffledChoices.filter(choice => String(choice) !== String(q.answer))
-    const eliminated = shuffle(wrongChoices).slice(0, 2).map(String)
+    if (chosen || hintEliminated.size > 0) return
+    const wrongChoices = shuffledChoices.filter(c => String(c) !== String(q.answer))
+    const eliminated = shuffle(wrongChoices).slice(0, 2)
     setHintEliminated(new Set(eliminated))
     setHintsUsed(prev => prev + 1)
   }
 
   if (!q) return null
 
-  // Highlight ? in sequence
-  const parts = q.sequence.split('?')
-  const displaySeq = parts.length === 2
-    ? <>{parts[0]}<span className="seq-blank">?</span>{parts[1]}</>
-    : q.sequence
-
   return (
     <div className="game-container">
       <div className="game-header">
-        <h2>🔢 Number Sequence</h2>
+        <h2>🧠 Trivia Quiz</h2>
         <Timer timeLeft={timeLeft} totalTime={totalTime} />
       </div>
       <div className="game-progress">Question {idx + 1} / {questions.length}</div>
 
       <div className="game-tools">
-        <button className="btn-secondary small" onClick={useHint} disabled={chosen !== null || hintEliminated.size > 0}>
+        <button className="btn-secondary small" onClick={useHint} disabled={!!chosen || hintEliminated.size > 0}>
           💡 50-50 Hint (-{hintPenaltyPerUse})
         </button>
       </div>
 
-      <div className="sequence-display">{displaySeq}</div>
-      <p className="question-prompt">Find the missing number</p>
+      <div className="trivia-question">{q.question}</div>
 
       <div className="options-grid-2x2">
         {shuffledChoices.map(choice => {
           let cls = 'option-btn'
-          if (chosen !== null) {
+          if (chosen) {
             if (String(choice) === String(q.answer)) cls += ' correct'
-            else if (String(choice) === String(chosen)) cls += ' wrong'
+            else if (choice === chosen) cls += ' wrong'
             else cls += ' disabled'
-          } else if (hintEliminated.has(String(choice))) {
+          } else if (hintEliminated.has(choice)) {
             cls += ' disabled'
           }
           return (
-          <button
-            key={choice}
-            className={cls}
-            onClick={() => handleAnswer(choice)}
-            disabled={chosen !== null || hintEliminated.has(String(choice))}
-          >
-            {choice}
-          </button>
+            <button key={choice} className={cls} onClick={() => handleAnswer(choice)} disabled={!!chosen || hintEliminated.has(choice)}>
+              {choice}
+            </button>
           )
         })}
       </div>

@@ -4,6 +4,10 @@ import EmojiDecode from './games/EmojiDecode.jsx'
 import NumberSequence from './games/NumberSequence.jsx'
 import WordAssociation from './games/WordAssociation.jsx'
 import WordSearch from './games/WordSearch.jsx'
+import TrueFalseBlitz from './games/TrueFalseBlitz.jsx'
+import OddOneOut from './games/OddOneOut.jsx'
+import TriviaQuiz from './games/TriviaQuiz.jsx'
+import MemoryMatch from './games/MemoryMatch.jsx'
 
 const GAME_MAP = {
   anagram:         AnagramRush,
@@ -12,6 +16,10 @@ const GAME_MAP = {
   numbersequence:  NumberSequence,
   wordassociation: WordAssociation,
   wordsearch:      WordSearch,
+  truefalse:       TrueFalseBlitz,
+  oddoneout:       OddOneOut,
+  trivia:          TriviaQuiz,
+  memorymatch:     MemoryMatch,
 }
 
 export default function GameScreen({ config, onEnd, onClose }) {

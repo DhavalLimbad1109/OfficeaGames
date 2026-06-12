@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Timer from '../Timer.jsx'
 import { shuffle } from '../../utils/gameUtils.js'
 import { getHintPenaltyPerUse } from '../../utils/scoring.js'
+import { playCorrect, playWrong } from '../../utils/sounds.js'
 
 export default function EmojiDecode({ questions, difficulty, totalTime, onEnd }) {
   const [idx, setIdx] = useState(0)
@@ -44,6 +45,7 @@ export default function EmojiDecode({ questions, difficulty, totalTime, onEnd })
   function handleAnswer(choice) {
     if (chosen) return
     const correct = choice === q.answer
+    correct ? playCorrect() : playWrong()
     setChosen(choice)
     const newAnswers = [...answers, { correct, timeLeft }]
     setTimeout(() => {

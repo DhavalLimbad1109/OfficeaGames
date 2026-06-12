@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Timer from '../Timer.jsx'
 import { scrambleWord } from '../../utils/gameUtils.js'
 import { getHintPenaltyPerUse } from '../../utils/scoring.js'
+import { playCorrect, playWrong } from '../../utils/sounds.js'
 
 export default function AnagramRush({ questions, difficulty, totalTime, onEnd }) {
   const [idx, setIdx] = useState(0)
@@ -54,6 +55,7 @@ export default function AnagramRush({ questions, difficulty, totalTime, onEnd })
     if (newSelected.length === q.word.length) {
       const guess = newSelected.map(t => t.char).join('')
       const correct = guess === q.word
+      correct ? playCorrect() : playWrong()
       setFeedback(correct ? 'correct' : 'wrong')
       const newAnswers = [...answers, { correct, timeLeft }]
       setTimeout(() => {

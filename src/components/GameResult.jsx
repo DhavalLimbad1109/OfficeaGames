@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { GAME_META } from '../utils/gameUtils.js'
 import { DIFFICULTY_CONFIG as DC } from '../utils/scoring.js'
+import { launchConfetti } from '../utils/confetti.js'
+import { playGameEnd } from '../utils/sounds.js'
 
 export default function GameResult({ result, onPlayAgain, onHub, onLeaderboard, playsRemaining }) {
   const { score, correct, wrong, gameType, difficulty, hintsUsed = 0, hintPenalty = 0 } = result
@@ -7,6 +10,11 @@ export default function GameResult({ result, onPlayAgain, onHub, onLeaderboard, 
   const diffCfg = DC[difficulty]
   const total = correct + wrong
   const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0
+
+  useEffect(() => {
+    playGameEnd()
+    if (accuracy >= 70) launchConfetti()
+  }, [])
 
   const grade =
     accuracy >= 90 ? { label: 'Outstanding! 🌟', color: '#ffd700' }

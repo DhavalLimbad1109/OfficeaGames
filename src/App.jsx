@@ -11,6 +11,9 @@ import GameHub from './components/GameHub.jsx'
 import GameScreen from './components/GameScreen.jsx'
 import GameResult from './components/GameResult.jsx'
 import Leaderboard from './components/Leaderboard.jsx'
+import PlayerStats from './components/PlayerStats.jsx'
+import DailyChallenge from './components/DailyChallenge.jsx'
+import AchievementToast from './components/AchievementToast.jsx'
 
 const PLAYER_KEY = 'og_player'
 const PLAYER_SESSION_KEY = 'og_player_session'
@@ -55,7 +58,9 @@ export default function App() {
   const [weeklyScore, setWeeklyScore] = useState(0)
   const [gameConfig, setGameConfig] = useState(null)
   const [gameResult, setGameResult] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [authNotice, setAuthNotice] = useState('')
+  const [newAchievements, setNewAchievements] = useState([])
   const gameEndedRef = useRef(false)
 
   const getDeviceFingerprint = useCallback(async () => {
@@ -76,6 +81,17 @@ export default function App() {
     }
   }, [])
 
+  const checkAdminStatus = useCallback(async (token, fingerprint) => {
+    if (!supabase || !token || !fingerprint) { setIsAdmin(false); return }
+    try {
+      const { data } = await supabase.rpc('check_player_is_admin', {
+        _session_token: token,
+        _fp_hash: fingerprint,
+      })
+      setIsAdmin(Boolean(data))
+    } catch (_) { setIsAdmin(false) }
+  }, [])
+
   const loadWeeklyScore = useCallback(async ({ playerId, token, fingerprint }) => {
     if (!supabase || !playerId || !token || !fingerprint) return
     const { data, error } = await supabase.rpc('get_player_weekly_score', {
@@ -87,15 +103,24 @@ export default function App() {
     setWeeklyScore(Number(data) || 0)
   }, [])
 
-  const resetToSignedOutState = useCallback(() => {
+  const resetToSignedOutState = useCallback(async () => {
+    if (supabase && sessionToken && deviceFingerprint) {
+      try {
+        await supabase.rpc('player_sign_out', {
+          _session_token: sessionToken,
+          _fp_hash: deviceFingerprint,
+        })
+      } catch (_) { /* ignore sign-out errors */ }
+    }
     localStorage.removeItem(PLAYER_KEY)
     localStorage.removeItem(PLAYER_SESSION_KEY)
     setPlayer(null)
     setSessionToken('')
     setPendingPasswordReset(null)
     setWeeklyScore(0)
+    setIsAdmin(false)
     setView('registration')
-  }, [])
+  }, [sessionToken, deviceFingerprint])
 
   useEffect(() => {
     async function init() {
@@ -156,6 +181,7 @@ export default function App() {
           token: savedSession.sessionToken,
           fingerprint: fp,
         })
+        await checkAdminStatus(savedSession.sessionToken, fp)
         setAuthNotice('')
         setView('hub')
       } catch (error) {
@@ -165,7 +191,7 @@ export default function App() {
     }
 
     init()
-  }, [getDeviceFingerprint, loadWeeklyScore, refreshAdminBootstrapStatus, resetToSignedOutState])
+  }, [getDeviceFingerprint, loadWeeklyScore, checkAdminStatus, refreshAdminBootstrapStatus, resetToSignedOutState])
 
   async function handleLocalRegister(name) {
     const normalizedName = normalizePlayerName(name)
@@ -225,6 +251,7 @@ export default function App() {
     setPendingPasswordReset(null)
     setPlayer(nextPlayer)
     await loadWeeklyScore({ playerId: nextPlayer.id, token: nextToken, fingerprint: fp })
+    await checkAdminStatus(nextToken, fp)
     setAuthNotice('')
     setView('hub')
   }
@@ -248,6 +275,7 @@ export default function App() {
       token: pendingPasswordReset.sessionToken,
       fingerprint: fp,
     })
+    await checkAdminStatus(pendingPasswordReset.sessionToken, fp)
     setAuthNotice('')
     setView('hub')
   }
@@ -285,8 +313,26 @@ export default function App() {
     const gameType = pickRandomGame(getLastGameType())
     const difficulty = getDifficultyFromScore(weeklyScore)
     const { timeSeconds } = DIFFICULTY_CONFIG[difficulty]
-    const selfGenerating = ['zippuzzle', 'wordsearch'].includes(gameType)
-    const questions = selfGenerating ? [] : pickQuestions(ALL_QUESTIONS[gameType], difficulty)
+    const selfGenerating = ['zippuzzle', 'wordsearch', 'memorymatch'].includes(gameType)
+
+    let questions = []
+    if (!selfGenerating) {
+      // Try DB first, fall back to static
+      if (supabase) {
+        const { data } = await supabase.rpc('get_game_questions', {
+          _game_type: gameType,
+          _difficulty: difficulty,
+          _count: 10,
+        })
+        if (data?.length) {
+          questions = data.map((q, i) => ({ id: `db_${i}`, difficulty, ...q }))
+        }
+      }
+      if (!questions.length && ALL_QUESTIONS[gameType]) {
+        questions = pickQuestions(ALL_QUESTIONS[gameType], difficulty)
+      }
+    }
+
     setGameConfig({ type: gameType, difficulty, questions, totalTime: timeSeconds })
     setView('game')
   }
@@ -317,7 +363,24 @@ export default function App() {
         _wrong_answers: wrong,
         _week_start: getWeekStart(),
       })
-      if (error) throw error
+      if (error) console.error('Failed to record game session:', error)
+
+      // Check and award achievements
+      try {
+        const timeRemainingPct = answers.length > 0 && answers[answers.length - 1].timeLeft != null
+          ? (answers[answers.length - 1].timeLeft / gameConfig.totalTime) * 100
+          : 0
+        const { data: earned } = await supabase.rpc('check_and_award_achievements', {
+          _session_token: sessionToken,
+          _fp_hash: fp,
+          _game_score: total,
+          _correct: correct,
+          _wrong: wrong,
+          _difficulty: gameConfig.difficulty,
+          _time_remaining_pct: Math.round(timeRemainingPct),
+        })
+        if (earned?.length) setNewAchievements(earned)
+      } catch (_) { /* achievement check is non-critical */ }
     }
 
     setWeeklyScore(prev => prev + total)
@@ -362,12 +425,24 @@ export default function App() {
     )
   }
 
-  if (view === 'hub') return <GameHub player={player} weeklyScore={weeklyScore} onPlay={handlePlay} onLeaderboard={() => setView('leaderboard')} />
+  if (view === 'hub') return <GameHub player={player} weeklyScore={weeklyScore} isAdmin={isAdmin} onPlay={handlePlay} onLeaderboard={() => setView('leaderboard')} onStats={() => setView('stats')} onDaily={() => setView('daily')} onLogout={resetToSignedOutState} />
   if (view === 'game') return <GameScreen config={gameConfig} onEnd={handleGameEnd} onClose={handleCloseGame} />
+  const achievementToast = (
+    <AchievementToast
+      achievements={newAchievements}
+      onDone={() => setNewAchievements([])}
+    />
+  )
+
   if (view === 'result') {
     const { playsRemaining } = getPlayStatus()
-    return <GameResult result={gameResult} playsRemaining={playsRemaining} onPlayAgain={handlePlay} onHub={() => setView('hub')} onLeaderboard={() => setView('leaderboard')} />
+    return <>
+      {achievementToast}
+      <GameResult result={gameResult} playsRemaining={playsRemaining} onPlayAgain={handlePlay} onHub={() => setView('hub')} onLeaderboard={() => setView('leaderboard')} />
+    </>
   }
+  if (view === 'stats') return <PlayerStats player={player} sessionToken={sessionToken} fingerprint={deviceFingerprint} onBack={() => setView('hub')} />
+  if (view === 'daily') return <DailyChallenge player={player} sessionToken={sessionToken} fingerprint={deviceFingerprint} onBack={() => setView('hub')} />
   if (view === 'leaderboard') return <Leaderboard player={player} onBack={() => setView('hub')} />
   return null
 }

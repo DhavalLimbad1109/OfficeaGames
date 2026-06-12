@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Timer from '../Timer.jsx'
+import { playCorrect, playWrong } from '../../utils/sounds.js'
 
 export default function TrueFalseBlitz({ questions, difficulty, totalTime, onEnd }) {
   const [idx, setIdx] = useState(0)
@@ -15,7 +16,7 @@ export default function TrueFalseBlitz({ questions, difficulty, totalTime, onEnd
   const endGame = useCallback((finalAnswers) => {
     if (ended) return
     setEnded(true)
-    onEnd(finalAnswers)
+    onEnd({ answers: finalAnswers, hintsUsed: 0 })
   }, [ended, onEnd])
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function TrueFalseBlitz({ questions, difficulty, totalTime, onEnd
   function handleAnswer(value) {
     if (chosen !== null) return
     const correct = value === q.answer
+    correct ? playCorrect() : playWrong()
     setChosen(value)
     const newAnswers = [...answers, { correct, timeLeft }]
     setTimeout(() => {
